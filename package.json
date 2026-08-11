@@ -2,7 +2,15 @@
   "name": "flashgent",
   "version": "0.1.0",
   "description": "Local-first coding agent powered by LM Studio",
-  "author": "flashback",
+  "desktopName": "flashgent.desktop",
+  "author": {
+    "name": "flashback",
+    "email": "79638511+flashback7766@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flashback7766/flashgent.git"
+  },
   "license": "GPL-3.0",
   "main": "./out/main/index.js",
   "type": "module",

@@ -41,6 +41,9 @@ linux:
       arch: [x64]
   category: Development
   synopsis: Local-first coding agent powered by LM Studio
+  # Ties a running window back to the .desktop entry; without it the app shows
+  # up as a generic unnamed window on Linux.
+  syncDesktopName: true
 
 # CI publishes to a GitHub release; the local pack:* scripts pass
 # --publish never, so nothing leaves this machine by accident.

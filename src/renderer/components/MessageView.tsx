@@ -130,20 +130,28 @@ export function TurnStatus({ startedAt }: { startedAt: number }): React.ReactEle
       Date.now() - prefill.startedAt
     )
 
+    // Past the estimate the percentage is a guess that has already been wrong,
+    // and a bar frozen at 99% reads as a hang. Say "still going" instead.
+    const overrun = percent !== null && percent >= 99
+
     return (
       <div className="mt-2 flex items-center gap-2 text-[12px] text-faint">
         <span className="fg-pulse text-brand" aria-hidden>
           &#10035;
         </span>
-        <span>prompt processing{percent === null ? '' : ` — ${percent}%`}&hellip;</span>
-        {percent !== null && (
-          <span className="h-1 w-24 overflow-hidden rounded-full bg-line">
-            <span
-              className="fg-meter block h-full bg-brand"
-              style={{ width: `${percent}%` }}
-            />
-          </span>
-        )}
+        <span>
+          prompt processing{percent === null || overrun ? '' : ` — ${percent}%`}
+          &hellip;
+        </span>
+
+        {percent !== null &&
+          (overrun ? (
+            <span className="relative h-1 w-24 overflow-hidden rounded-full bg-line fg-sweep" />
+          ) : (
+            <span className="h-1 w-24 overflow-hidden rounded-full bg-line">
+              <span className="fg-meter block h-full bg-brand" style={{ width: `${percent}%` }} />
+            </span>
+          ))}
       </div>
     )
   }

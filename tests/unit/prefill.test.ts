@@ -98,6 +98,8 @@ describe('prefillProgress', () => {
 
   it('never claims to be finished', () => {
     recordPrefill('m', 2000, 2000)
+    // The UI treats 99 as "estimate overrun" and switches to an indeterminate
+    // bar, so the number must never go past it.
     expect(prefillProgress('m', 4000, 600_000).percent).toBe(99)
     expect(prefillProgress('m', 4000, 600_000).remainingSeconds).toBe(0)
   })
