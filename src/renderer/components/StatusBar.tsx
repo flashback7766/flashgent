@@ -1,11 +1,11 @@
 import { EFFORT_ORDER, type EffortLevel, type PermissionMode } from '@shared/types'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { effortProfile } from '../agent/effort.js'
 import { PERMISSION_MODE_INFO } from '../agent/permissions.js'
 import { BUILTIN_TOOLS } from '../agent/tools/builtin.js'
-import { contextBreakdown, sharePercent, type ContextSlice } from '../lib/context.js'
+import { contextBreakdown, sharePercent, type ContextBreakdown, type ContextSlice } from '../lib/context.js'
 import { formatTokens } from '../lib/format.js'
-import { useApp } from '../store/app.js'
+import { MIN_MESSAGES_TO_COMPACT, useApp } from '../store/app.js'
 import { Menu } from './Menu.js'
 
 const CHIP = 'rounded-md px-2 py-1 text-[11.5px] text-muted hover:bg-raised hover:text-ink'
@@ -38,123 +38,194 @@ function Ring({ fraction }: { fraction: number }): React.ReactElement {
   )
 }
 
-/** Row in the breakdown: swatch, label, tokens, share. */
+/**
+ * One line of the breakdown. Every row — parent, child and the free-space row
+ * — goes through here so the four columns stay on the same grid; they used to
+ * be built separately and drifted apart by a couple of pixels.
+ */
 function SliceRow({
-  slice,
+  label,
+  tokens,
+  colour,
+  share,
+  depth = 0,
+  open,
+  onToggle,
+  muted
+}: {
+  label: string
+  tokens: number
+  /** Tailwind background class, or null for the hollow free-space swatch. */
+  colour: string | null
+  share: number
+  depth?: number
+  open?: boolean
+  onToggle?: () => void
+  muted?: boolean
+}): React.ReactElement {
+  const body = (
+    <>
+      <span
+        aria-hidden
+        className={`w-2.5 shrink-0 text-[10px] leading-none text-faint transition-transform ${
+          open ? 'rotate-90' : ''
+        }`}
+      >
+        {onToggle ? '›' : ''}
+      </span>
+      <span
+        className={`h-2.5 w-2.5 shrink-0 rounded-sm ${colour ?? 'border border-line'}`}
+        aria-hidden
+      />
+      <span className={`min-w-0 flex-1 truncate ${muted ? 'text-faint' : 'text-muted'}`}>
+        {label}
+      </span>
+      <span
+        className={`shrink-0 tabular-nums ${muted ? 'text-muted' : 'text-ink'}`}
+      >
+        {formatTokens(tokens)}
+      </span>
+      <span className="w-12 shrink-0 text-right tabular-nums text-faint">
+        {share < 0.05 ? '<0.1%' : `${share.toFixed(1)}%`}
+      </span>
+    </>
+  )
+
+  const shape = 'flex w-full items-center gap-2 rounded py-[3px] pr-1 text-left text-[11.5px]'
+  const indent = { paddingLeft: `${depth * 14 + 4}px` }
+
+  return (
+    <li>
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className={`${shape} hover:bg-raised`}
+          style={indent}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className={shape} style={indent}>
+          {body}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function SliceRows({
+  slices,
   limit,
   used,
   depth = 0
 }: {
-  slice: ContextSlice
+  slices: ContextSlice[]
   limit: number | null
   used: number
   depth?: number
 }): React.ReactElement {
-  const [open, setOpen] = useState(false)
-  const hasChildren = Boolean(slice.children?.length)
-  const share = sharePercent(slice.tokens, limit, used)
+  const [open, setOpen] = useState<string | null>(null)
 
   return (
     <>
-      <li>
-        <button
-          type="button"
-          onClick={() => hasChildren && setOpen((v) => !v)}
-          disabled={!hasChildren}
-          className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left ${
-            hasChildren ? 'hover:bg-raised' : 'cursor-default'
-          }`}
-          style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        >
-          {hasChildren ? (
-            <span
-              aria-hidden
-              className={`w-2 shrink-0 text-[10px] text-faint transition-transform ${open ? 'rotate-90' : ''}`}
-            >
-              &rsaquo;
-            </span>
-          ) : (
-            <span className="w-2 shrink-0" aria-hidden />
-          )}
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${slice.colour}`} aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">{slice.label}</span>
-          <span className="shrink-0 tabular-nums text-[11.5px] text-ink">
-            {formatTokens(slice.tokens)}
-          </span>
-          <span className="w-11 shrink-0 text-right tabular-nums text-[11px] text-faint">
-            {share < 0.1 ? '—' : `${share.toFixed(1)}%`}
-          </span>
-        </button>
-      </li>
+      {slices.map((slice) => {
+        const children = slice.children ?? []
+        const expanded = open === slice.id
 
-      {open &&
-        slice.children?.map((child) => (
-          <SliceRow key={child.id} slice={child} limit={limit} used={used} depth={depth + 1} />
-        ))}
+        return (
+          <Fragment key={slice.id}>
+            <SliceRow
+              label={slice.label}
+              tokens={slice.tokens}
+              colour={slice.colour}
+              share={sharePercent(slice.tokens, limit, used)}
+              depth={depth}
+              {...(children.length
+                ? { open: expanded, onToggle: () => setOpen(expanded ? null : slice.id) }
+                : {})}
+            />
+            {expanded && children.length > 0 && (
+              <SliceRows slices={children} limit={limit} used={used} depth={depth + 1} />
+            )}
+          </Fragment>
+        )
+      })}
     </>
   )
 }
 
-/** The full accounting, computed from what is actually in the conversation. */
-function Breakdown(): React.ReactElement {
+/** Proportional bar built from the same slices as the rows below it. */
+function StackedBar({ breakdown }: { breakdown: ContextBreakdown }): React.ReactElement {
+  const total = breakdown.limit ?? breakdown.used
+
+  return (
+    <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-line">
+      {breakdown.slices.map((slice) => (
+        <div
+          key={slice.id}
+          className={`fg-meter h-full ${slice.colour}`}
+          style={{ width: `${total ? (slice.tokens / total) * 100 : 0}%` }}
+          title={`${slice.label} — ${formatTokens(slice.tokens)}`}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** The full accounting, reconciled against the server's own count. */
+function useBreakdown(): ContextBreakdown | null {
   const messages = useApp((s) => s.messages)
   const mcpTools = useApp((s) => s.mcpTools)
   const config = useApp((s) => s.config)
   const attachments = useApp((s) => s.attachments)
   const contextTokens = useApp((s) => s.contextTokens)
+  const projectInstructions = useApp((s) => s.projectInstructions)
+  const usage = useApp((s) => s.usage)
 
-  if (!config) return <p className="mt-2 text-[11px] text-faint">Not available yet.</p>
+  if (!config) return null
 
-  const breakdown = contextBreakdown({
+  return contextBreakdown({
     messages,
     mcpTools,
     builtinTools: BUILTIN_TOOLS.map((t) => t.definition),
     config,
     attachments,
-    projectInstructions: '',
-    limit: contextTokens
+    projectInstructions,
+    limit: contextTokens,
+    measured: usage?.total ?? null
   })
+}
 
+function Breakdown({ breakdown }: { breakdown: ContextBreakdown }): React.ReactElement {
+  const ordered = breakdown.slices.slice().sort((a, b) => b.tokens - a.tokens)
   const free = breakdown.limit === null ? null : breakdown.free
 
   return (
     <div className="fg-unfold mt-2 border-t border-line pt-2">
-      <ul className="space-y-px">
-        {breakdown.slices
-          .slice()
-          .sort((a, b) => b.tokens - a.tokens)
-          .map((slice) => (
-            <SliceRow
-              key={slice.id}
-              slice={slice}
-              limit={breakdown.limit}
-              used={breakdown.used}
-            />
-          ))}
+      <ul>
+        <SliceRows slices={ordered} limit={breakdown.limit} used={breakdown.used} />
 
         {free !== null && (
-          <li>
-            <div className="flex items-center gap-2 px-1 py-1 pl-[4px]">
-              <span className="w-2 shrink-0" aria-hidden />
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm border border-line"
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1 text-[11.5px] text-faint">Free space</span>
-              <span className="shrink-0 tabular-nums text-[11.5px] text-muted">
-                {formatTokens(free)}
-              </span>
-              <span className="w-11 shrink-0 text-right tabular-nums text-[11px] text-faint">
-                {sharePercent(free, breakdown.limit, breakdown.used).toFixed(1)}%
-              </span>
-            </div>
-          </li>
+          <>
+            <li aria-hidden className="my-1 border-t border-line/60" />
+            <SliceRow
+              label="Free space"
+              tokens={free}
+              colour={null}
+              share={sharePercent(free, breakdown.limit, breakdown.used)}
+              muted
+            />
+          </>
         )}
       </ul>
 
       <p className="mt-2 text-[11px] leading-relaxed text-faint">
-        Estimated from the conversation, so it will not match the server's count exactly. Command
-        output is counted here, unlike in the per-turn figure.
+        {breakdown.fromServer
+          ? 'Totals come from the server. The rows are estimated from the conversation, so whatever they cannot account for is listed as "not itemised".'
+          : 'Estimated from the conversation until the model reports its own count, so these figures are approximate.'}{' '}
+        Command output is counted here, unlike in the per-turn figure.
       </p>
     </div>
   )
@@ -162,16 +233,24 @@ function Breakdown(): React.ReactElement {
 
 export function ContextRing(): React.ReactElement {
   const [detailed, setDetailed] = useState(false)
-  const usage = useApp((s) => s.usage)
   const contextTokens = useApp((s) => s.contextTokens)
   const compact = useApp((s) => s.compact)
   const streaming = useApp((s) => s.streaming)
   const messages = useApp((s) => s.messages)
   const autoAt = useApp((s) => s.config?.agent.autoCompactAt ?? 0)
+  const breakdown = useBreakdown()
 
-  const used = usage?.total ?? 0
+  // One number everywhere: the ring, the header and the rows all read from the
+  // same total, so the popup can no longer contradict itself.
+  const used = breakdown?.used ?? 0
   const fraction = contextTokens ? used / contextTokens : 0
   const percent = Math.round(fraction * 100)
+
+  const blocked = streaming
+    ? 'Finishes after the current turn.'
+    : messages.length < MIN_MESSAGES_TO_COMPACT
+      ? 'Nothing to compact yet — send a message first.'
+      : null
 
   return (
     <Menu
@@ -196,48 +275,56 @@ export function ContextRing(): React.ReactElement {
             </span>
           </div>
 
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
-            <div
-              className={`fg-meter h-full ${fraction > 0.92 ? 'bg-bad' : fraction > 0.8 ? 'bg-warn' : 'bg-brand'}`}
-              style={{ width: `${Math.min(100, percent)}%` }}
-            />
-          </div>
+          {/* Expanded, the bar is split by slice so it reads as the same
+              accounting as the rows; collapsed, it is a single fill. */}
+          {detailed && breakdown ? (
+            <StackedBar breakdown={breakdown} />
+          ) : (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+              <div
+                className={`fg-meter h-full ${fraction > 0.92 ? 'bg-bad' : fraction > 0.8 ? 'bg-warn' : 'bg-brand'}`}
+                style={{ width: `${Math.min(100, percent)}%` }}
+              />
+            </div>
+          )}
 
           <button
             type="button"
             id="fg-context-breakdown"
             onClick={() => setDetailed((v) => !v)}
             aria-expanded={detailed}
-            className="mt-2.5 flex w-full items-center gap-1.5 text-[11.5px] text-faint hover:text-muted"
+            disabled={!breakdown}
+            className="mt-2.5 flex w-full items-center gap-1.5 text-[11.5px] text-faint hover:text-muted disabled:opacity-50"
           >
-            <span aria-hidden className={`transition-transform ${detailed ? 'rotate-90' : ''}`}>
+            <span
+              aria-hidden
+              className={`inline-block transition-transform ${detailed ? 'rotate-90' : ''}`}
+            >
               &rsaquo;
             </span>
             {detailed ? 'Hide breakdown' : 'What is using the context'}
           </button>
 
-          {detailed && <Breakdown />}
+          {detailed && breakdown && <Breakdown breakdown={breakdown} />}
 
-          {!detailed && autoAt > 0 && (
-            <p className="mt-2 text-[11px] text-faint">
-              Compacts automatically at {Math.round(autoAt * 100)}%.
+          <div className="mt-3 border-t border-line pt-3">
+            <button
+              type="button"
+              disabled={blocked !== null}
+              onClick={() => {
+                close()
+                void compact()
+              }}
+              className="w-full rounded-lg bg-brand px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Compact conversation
+            </button>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
+              {blocked ??
+                'Replaces the history with a summary so work can continue in a fresh window.'}
+              {autoAt > 0 && !blocked && ` Happens on its own at ${Math.round(autoAt * 100)}%.`}
             </p>
-          )}
-
-          <button
-            type="button"
-            disabled={streaming || messages.length < 3}
-            onClick={() => {
-              close()
-              void compact()
-            }}
-            className="mt-3 w-full rounded-lg bg-brand px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-30"
-          >
-            Compact conversation
-          </button>
-          <p className="mt-1.5 text-[11px] text-faint">
-            Replaces the history with a summary so work can continue in a fresh window.
-          </p>
+          </div>
         </div>
       )}
     </Menu>

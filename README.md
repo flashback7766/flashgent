@@ -10,7 +10,8 @@ Built by **flashback**. Licensed under GPL-3.0.
 
 ## Requirements
 
-- Windows 10+ or Linux, Node 18+ (Node 24 recommended)
+- Windows 10+ or Linux (Arch, Debian/Ubuntu, Fedora), Node 18+ (Node 24 recommended)
+- macOS is not currently packaged (PR welcome)
 - LM Studio with the local server running (**Developer → Start Server**) and a model loaded
 
 ## Running it
@@ -145,8 +146,21 @@ npm run dev         # hot-reloading dev build
 npm run typecheck   # both tsconfig projects
 npm test            # vitest unit tests
 npm run test:e2e    # Playwright, drives the real app against LM Studio
-npm run pack:win    # NSIS installer
-npm run pack:linux  # AppImage + deb
+npm run pack:win    # NSIS installer + portable zip
+npm run pack:linux  # AppImage + .deb + .pacman (Arch)
+```
+
+The `.pacman` build shells out to `fpm`, which requires `libarchive-tools` and `zstd`:
+
+```bash
+# Debian/Ubuntu build host
+sudo apt-get install libarchive-tools zstd
+```
+
+The resulting `.pacman` file is a standard `zst`-compressed pacman package. Install it locally with:
+
+```bash
+sudo pacman -U flashgent-*.pacman
 ```
 
 The e2e suite needs LM Studio running with at least one loadable model. It probes for one that

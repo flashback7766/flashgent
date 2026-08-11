@@ -36,6 +36,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The pacman target is built with fpm, which shells out to bsdtar and
+      # zstd. Neither is on the Ubuntu runner by default.
+      - name: Install Arch packaging tools
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools zstd
+
       - run: npm ci
 
       # A release that fails its own tests is worse than no release.
@@ -55,4 +61,5 @@ jobs:
             release/*.zip
             release/*.AppImage
             release/*.deb
+            release/*.pacman
           if-no-files-found: warn

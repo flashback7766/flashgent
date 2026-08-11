@@ -67,6 +67,11 @@ interface AppState {
   prefill: { model: string; promptTokens: number; startedAt: number } | null
   usage: TokenUsage | null
   contextTokens: number | null
+  /**
+   * FLASHGENT.md / CLAUDE.md as last read for a turn. Kept so the context
+   * breakdown can account for them; they are read fresh for each turn.
+   */
+  projectInstructions: string
 
   pendingPermission: PermissionRequest | null
   pendingContinue: number | null
@@ -130,6 +135,12 @@ let abortController: AbortController | null = null
 
 const uid = (): string => globalThis.crypto.randomUUID()
 
+/**
+ * One exchange is enough to be worth compacting: a single tool call can fill
+ * most of a small window on its own.
+ */
+export const MIN_MESSAGES_TO_COMPACT = 2
+
 /** Models that cannot do native tool calls, remembered for the session. */
 const reactModels = new Set<string>()
 
@@ -153,6 +164,7 @@ export const useApp = create<AppState>((set, get) => ({
   prefill: null,
   usage: null,
   contextTokens: null,
+  projectInstructions: '',
   pendingPermission: null,
   pendingContinue: null,
   pendingAsk: null,
@@ -491,10 +503,24 @@ export const useApp = create<AppState>((set, get) => ({
   async compact() {
     const { messages, activeSessionId, config } = get()
     const session = get().sessions.find((s) => s.id === activeSessionId)
-    if (!session || !config || messages.length < 3 || get().streaming) return
+    if (!session || !config) return
+
+    // Failing silently here was indistinguishable from a dead button, so every
+    // way out says why.
+    if (get().streaming) {
+      get().toast('info', 'Wait for the current turn to finish, then compact.')
+      return
+    }
+    if (messages.length < MIN_MESSAGES_TO_COMPACT) {
+      get().toast('info', 'Nothing to compact yet — there is no history to summarise.')
+      return
+    }
 
     const model = session.model ?? config.lastModel
-    if (!model) return
+    if (!model) {
+      get().toast('error', 'Pick a model first — compacting needs one to write the summary.')
+      return
+    }
 
     set({ streaming: true, currentAction: 'Compacting the conversation' })
     try {
@@ -519,6 +545,13 @@ export const useApp = create<AppState>((set, get) => ({
         ],
         onDelta: () => undefined
       })
+
+      // A model that returns nothing but reasoning would otherwise replace the
+      // whole conversation with an empty note. Keep the history instead.
+      if (!outcome.text.trim()) {
+        get().toast('error', 'The model returned an empty summary — history left as it was.')
+        return
+      }
 
       const summary: Message = {
         id: uid(),
@@ -678,6 +711,7 @@ async function streamAssistantTurn(
   }, 2000)
 
   const projectInstructions = await readProjectInstructions(session.cwd)
+  set({ projectInstructions })
 
   // Hypercode unlocks delegation. A subtask runs the same loop with a fresh
   // conversation and no delegation of its own, so it cannot recurse.

@@ -21,9 +21,14 @@ export interface ContextSlice {
 
 export interface ContextBreakdown {
   slices: ContextSlice[]
+  /** What the rows and the free space are measured against. */
   used: number
   free: number
   limit: number | null
+  /** Sum of the itemised rows, before reconciling with the server's count. */
+  estimated: number
+  /** True when `used` came from the server rather than from the estimate. */
+  fromServer: boolean
 }
 
 export interface BreakdownInput {
@@ -35,6 +40,13 @@ export interface BreakdownInput {
   /** Contents of FLASHGENT.md / CLAUDE.md, if any were loaded. */
   projectInstructions: string
   limit: number | null
+  /**
+   * What the server actually charged for the last request, when it is known.
+   * The itemised figures below are estimates from the conversation, so they
+   * drift; without reconciling against this the breakdown would claim the
+   * window is nearly empty while the ring shows it nearly full.
+   */
+  measured?: number | null
 }
 
 /** Rough size of the fixed instruction block, measured once. */
@@ -74,10 +86,8 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
   const prose = input.messages.reduce((sum, m) => sum + messageProse(m.blocks), 0)
   const tools = input.messages.reduce((sum, m) => sum + toolTraffic(m.blocks), 0)
 
-  const systemPrompt =
-    SYSTEM_PROMPT_BASE_TOKENS +
-    estimateTokens(input.config.agent.persona) +
-    estimateTokens(input.projectInstructions)
+  const systemPrompt = SYSTEM_PROMPT_BASE_TOKENS + estimateTokens(input.config.agent.persona)
+  const projectInstructions = estimateTokens(input.projectInstructions)
 
   const builtin = schemaTokens(input.builtinTools)
 
@@ -109,6 +119,12 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
       ].filter((child) => child.tokens > 0)
     },
     { id: 'system', label: 'System prompt', tokens: systemPrompt, colour: 'bg-warn' },
+    {
+      id: 'project',
+      label: 'Project instructions',
+      tokens: projectInstructions,
+      colour: 'bg-brand-soft'
+    },
     { id: 'builtin', label: 'Built-in tool schemas', tokens: builtin, colour: 'bg-muted' },
     {
       id: 'mcp',
@@ -127,10 +143,28 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
     { id: 'attachments', label: 'Pending attachments', tokens: attachments, colour: 'bg-bad' }
   ].filter((slice) => slice.tokens > 0)
 
-  const used = slices.reduce((sum, slice) => sum + slice.tokens, 0)
+  const estimated = slices.reduce((sum, slice) => sum + slice.tokens, 0)
+
+  // The server's number is the truth about how full the window is, and it is
+  // what the ring shows. Where it exceeds what we can itemise — chat templates,
+  // tokeniser differences, anything the renderer never sees — name the
+  // remainder instead of letting the rows quietly disagree with the ring.
+  const measured = input.measured ?? null
+  const fromServer = measured !== null && measured > estimated
+  const used = fromServer ? measured : estimated
+
+  if (fromServer) {
+    slices.push({
+      id: 'unaccounted',
+      label: 'Not itemised',
+      tokens: used - estimated,
+      colour: 'bg-line'
+    })
+  }
+
   const free = input.limit === null ? 0 : Math.max(0, input.limit - used)
 
-  return { slices, used, free, limit: input.limit }
+  return { slices, used, free, limit: input.limit, estimated, fromServer }
 }
 
 export function sharePercent(tokens: number, limit: number | null, used: number): number {

@@ -5,6 +5,18 @@ import { CH } from '../shared/ipc.js'
 import { logger } from './logger.js'
 import { isDebug, userDataDir } from './paths.js'
 
+/**
+ * Windows and macOS take the icon from the executable, but Linux and every
+ * `electron-vite dev` run need it handed over explicitly.
+ */
+function windowIcon(): string | undefined {
+  const candidates = [
+    join(process.resourcesPath, 'icon.png'), // packaged, via extraResources
+    join(process.cwd(), 'resources', 'icon.png') // dev
+  ]
+  return candidates.find((path) => existsSync(path))
+}
+
 interface WindowState {
   x?: number
   y?: number
@@ -69,10 +81,12 @@ function persistState(win: BrowserWindow): void {
 
 export function createMainWindow(preloadPath: string): BrowserWindow {
   const state = readState()
+  const icon = windowIcon()
 
   const win = new BrowserWindow({
     width: state.width,
     height: state.height,
+    ...(icon ? { icon } : {}),
     ...(state.x !== undefined ? { x: state.x } : {}),
     ...(state.y !== undefined ? { y: state.y } : {}),
     minWidth: MIN_WIDTH,

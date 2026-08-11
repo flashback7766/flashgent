@@ -11,6 +11,13 @@ files:
   - package.json
   - '!**/*.map'
 
+# The window icon is set at runtime on Linux and in dev, so the file has to
+# survive packaging as well as being the source electron-builder derives the
+# .ico and the Linux icon set from.
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+
 # better-sqlite3 ships a native binding that must not be bundled into the asar.
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'
@@ -39,11 +46,25 @@ linux:
       arch: [x64]
     - target: deb
       arch: [x64]
+    # Arch, Manjaro, EndeavourOS: install with `sudo pacman -U <file>`.
+    - target: pacman
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
   category: Development
   synopsis: Local-first coding agent powered by LM Studio
   # Ties a running window back to the .desktop entry; without it the app shows
   # up as a generic unnamed window on Linux.
   syncDesktopName: true
+
+pacman:
+  # Electron's runtime dependencies under their Arch package names; the
+  # Debian-flavoured defaults electron-builder ships would not resolve here.
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libxss
+    - libnotify
 
 # CI publishes to a GitHub release; the local pack:* scripts pass
 # --publish never, so nothing leaves this machine by accident.
