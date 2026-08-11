@@ -1,6 +1,6 @@
 {
   "name": "flashgent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first coding agent powered by LM Studio",
   "desktopName": "flashgent.desktop",
   "author": {

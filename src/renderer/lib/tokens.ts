@@ -1,8 +1,9 @@
 import type { ContentBlock } from '@shared/types'
 
-/** Rough estimate. Matches the loop's trimming heuristic. */
+/** Rough estimate for code, JSON and prose. Matches BPE tokenizer averages. */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3.5)
+  if (!text) return 0
+  return Math.ceil(text.length / 2.8)
 }
 
 /**

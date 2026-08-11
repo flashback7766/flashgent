@@ -23,7 +23,9 @@ import { buildRegistry } from '../agent/tools/registry.js'
 import { createSubtaskTool, type SubtaskRunner } from '../agent/tools/subtask.js'
 import { makeNonce, wrapUntrusted } from '../agent/untrusted.js'
 import { api, must, orElse } from '../lib/ipc.js'
+import { formatTokens } from '../lib/format.js'
 import { recordPrefill } from '../lib/prefill.js'
+import { estimateTokens, estimateTurnTokens } from '../lib/tokens.js'
 
 export interface Toast {
   id: string
@@ -524,6 +526,9 @@ export const useApp = create<AppState>((set, get) => ({
 
     set({ streaming: true, currentAction: 'Compacting the conversation' })
     try {
+      const beforeTokens =
+        get().usage?.total ?? messages.reduce((sum, m) => sum + estimateTurnTokens(m.blocks), 0)
+
       const transcript = messages
         .map((m) => `${m.role}: ${plainText(m.blocks).slice(0, 4000)}`)
         .join('\n\n')
@@ -553,20 +558,27 @@ export const useApp = create<AppState>((set, get) => ({
         return
       }
 
-      const summary: Message = {
+      const summaryTokens = estimateTokens(outcome.text)
+      const savedTokens = Math.max(0, beforeTokens - summaryTokens)
+      const savedStr = formatTokens(savedTokens)
+
+      const noticeText =
+        `⚡ **Compaction finished** — saved **${savedStr}** tokens (${savedTokens.toLocaleString()} tokens).\n\n` +
+        `*Summary of prior conversation:*\n${outcome.text}`
+
+      const summaryMessage: Message = {
         id: uid(),
         sessionId: session.id,
         role: 'user',
-        blocks: [{ type: 'text', text: `[Compacted history]\n\n${outcome.text}` }],
+        blocks: [{ type: 'text', text: noticeText }],
         model: null,
         createdAt: Date.now()
       }
 
-      const first = messages[0]
-      if (first) must(await api().db.truncateFrom(session.id, first.id))
-      must(await api().db.appendMessage(summary))
-      set({ messages: [summary], usage: null })
-      get().toast('success', 'Conversation compacted')
+      must(await api().db.appendMessage(summaryMessage))
+      const updatedMessages = [...get().messages, summaryMessage]
+      set({ messages: updatedMessages, usage: null })
+      get().toast('success', `Compaction finished — saved ${savedStr} tokens`)
     } catch (err) {
       get().toast('error', err instanceof Error ? err.message : String(err))
     } finally {

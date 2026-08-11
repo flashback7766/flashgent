@@ -1,10 +1,11 @@
-﻿import { CH } from '../../shared/ipc.js'
+import { CH } from '../../shared/ipc.js'
 import type { FetchRequest, FetchResult } from '../../shared/types.js'
 import { handle, handleN } from './result.js'
 
 const DEFAULT_MAX_BYTES = 200_000
 const REQUEST_TIMEOUT_MS = 20_000
-const USER_AGENT = 'flashgent/0.1 (+https://github.com/flashback/flashgent)'
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 /** Very small HTML -> text pass. Good enough to feed docs pages to a model. */
 function htmlToText(html: string): string {
@@ -42,7 +43,11 @@ async function fetchText(url: string, maxBytes: number): Promise<FetchResult> {
     response = await fetch(parsed.toString(), {
       signal: controller.signal,
       redirect: 'follow',
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,text/plain,application/json,*/*' }
+      headers: {
+        'User-Agent': BROWSER_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8'
+      }
     })
   } catch (err) {
     clearTimeout(timer)
@@ -66,31 +71,52 @@ interface SearchHit {
   snippet: string
 }
 
+function cleanUrl(rawUrl: string): string {
+  let url = rawUrl
+  const wrapped = /[?&]uddg=([^&]+)/.exec(url)
+  if (wrapped?.[1]) url = decodeURIComponent(wrapped[1])
+  if (url.startsWith('//')) url = `https:${url}`
+
+  try {
+    const u = new URL(url)
+    // Strip common tracking parameters
+    u.searchParams.delete('utm_source')
+    u.searchParams.delete('utm_medium')
+    u.searchParams.delete('utm_campaign')
+    u.searchParams.delete('utm_term')
+    u.searchParams.delete('utm_content')
+    u.searchParams.delete('fbclid')
+    u.searchParams.delete('gclid')
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
 /**
- * DuckDuckGo's no-JS endpoint. Keeps search working without an API key, which
- * matters for a local-first tool.
+ * DuckDuckGo's no-JS endpoint parser with robust regex matching.
  */
 function parseDuckDuckGo(html: string): SearchHit[] {
   const hits: SearchHit[] = []
-  const blocks = html.split('<div class="result')
+  const blocks = html.split(/<div[^>]*class="[^"]*result\b[^"]*"/)
 
-  for (const block of blocks.slice(1, 21)) {
-    const linkMatch = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/.exec(block)
+  for (const block of blocks.slice(1, 25)) {
+    const linkMatch =
+      /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(block) ||
+      /<a[^>]+href="([^"]+)"[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(block)
     if (!linkMatch?.[1]) continue
 
-    const snippetMatch = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/.exec(block)
-    let url = linkMatch[1]
+    const snippetMatch =
+      /class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|td|div|p)>/i.exec(block)
 
-    // DDG wraps results as /l/?uddg=<encoded>
-    const wrapped = /[?&]uddg=([^&]+)/.exec(url)
-    if (wrapped?.[1]) url = decodeURIComponent(wrapped[1])
-    if (url.startsWith('//')) url = `https:${url}`
+    const rawUrl = linkMatch[1]
+    const url = cleanUrl(rawUrl)
+    const title = htmlToText(linkMatch[2] ?? '')
+    const snippet = htmlToText(snippetMatch?.[1] ?? '')
 
-    hits.push({
-      title: htmlToText(linkMatch[2] ?? ''),
-      url,
-      snippet: htmlToText(snippetMatch?.[1] ?? '')
-    })
+    if (title && url) {
+      hits.push({ title, url, snippet })
+    }
   }
   return hits
 }
@@ -107,9 +133,9 @@ export function registerNetHandlers(): void {
 
     const text = hits.length
       ? hits
-          .map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}\n   ${h.snippet}`)
+          .map((h, i) => `${i + 1}. ${h.title}\n   URL: ${h.url}\n   Snippet: ${h.snippet}`)
           .join('\n\n')
-      : 'No results found.'
+      : 'No results found for query.'
 
     return { url, status: 200, contentType: 'text/plain', text, truncated: false }
   })
@@ -122,7 +148,11 @@ async function fetchTextRaw(url: string): Promise<string> {
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': USER_AGENT }
+      headers: {
+        'User-Agent': BROWSER_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,ru;q=0.8'
+      }
     })
     return await response.text()
   } catch (err) {

@@ -224,8 +224,6 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
   const retryLast = useApp((s) => s.retryLast)
   const toast = useApp((s) => s.toast)
 
-  const isUser = message.role === 'user'
-
   const copyMessage = async (): Promise<void> => {
     const text = message.blocks
       .filter((b) => b.type === 'text')
@@ -233,6 +231,40 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
       .join('\n\n')
     await navigator.clipboard.writeText(text)
     toast('success', 'Copied')
+  }
+
+  const isUser = message.role === 'user'
+  const userText = message.blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { text: string }).text)
+    .join('\n\n')
+
+  const isCompactionNotice =
+    isUser && (userText.includes('Compaction finished') || userText.includes('[Compacted history]'))
+
+  if (isCompactionNotice) {
+    return (
+      <article className="fg-enter group px-6 py-3">
+        <div className="mx-auto fg-column">
+          <div className="rounded-xl border border-brand/40 bg-brand/5 p-4 shadow-sm backdrop-blur-md">
+            <div className="flex items-center justify-between border-b border-brand/20 pb-2 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand/20 text-brand text-xs font-bold">
+                  ⚡
+                </span>
+                <span className="font-semibold text-ink text-sm">Context Compaction</span>
+              </div>
+              <span className="rounded-full bg-brand/15 px-2.5 py-0.5 text-xs font-medium text-brand border border-brand/30">
+                History Preserved
+              </span>
+            </div>
+            <div className="fg-transcript text-sm leading-relaxed text-muted">
+              <Markdown content={userText} streaming={false} />
+            </div>
+          </div>
+        </div>
+      </article>
+    )
   }
 
   // The user's own words read as a message; the agent's output reads as a

@@ -360,20 +360,178 @@ const webFetch: BuiltinTool = {
 const webSearch: BuiltinTool = {
   definition: {
     name: 'web_search',
-    description: 'Search the web; returns titles, URLs and snippets.',
+    description: 'Search the web; returns titles, URLs and snippets. Supports optional site filter.',
     risk: 'read',
     parameters: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'What to search for.' } },
+      properties: {
+        query: { type: 'string', description: 'What to search for.' },
+        site: { type: 'string', description: 'Optional domain restriction, e.g. "github.com".' }
+      },
       required: ['query']
     }
   },
   async execute(input) {
-    const result = unwrap(await window.flashgent.net.search(str(input, 'query')))
+    let q = str(input, 'query')
+    const site = input.site
+    if (typeof site === 'string' && site.trim()) {
+      q += ` site:${site.trim()}`
+    }
+    const result = unwrap(await window.flashgent.net.search(q))
     return {
       ok: true,
       content: result.text,
-      display: { kind: 'plain', title: `Search: ${str(input, 'query')}` }
+      display: { kind: 'plain', title: `Search: ${q}` }
+    }
+  }
+}
+
+const directoryTree: BuiltinTool = {
+  definition: {
+    name: 'directory_tree',
+    description:
+      'Generate a visual ASCII tree of the workspace or directory. Useful to inspect project structure.',
+    risk: 'read',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Directory path (default: workspace root ".").' },
+        max_depth: { type: 'integer', description: 'Maximum depth (default 3).' }
+      }
+    }
+  },
+  async execute(input, ctx) {
+    const rootPath = str(input, 'path', '.')
+    const maxDepth = num(input, 'max_depth') ?? 3
+
+    const ignoreSet = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache', 'coverage'])
+
+    async function buildTree(relPath: string, depth: number, prefix: string): Promise<string[]> {
+      if (depth > maxDepth) return []
+      let entries: string[] = []
+      try {
+        entries = unwrap(await window.flashgent.fs.listDir({ path: relPath, cwd: ctx.cwd }))
+      } catch {
+        return []
+      }
+
+      const filtered = entries.filter((e) => {
+        const name = e.endsWith('/') ? e.slice(0, -1) : e
+        return !ignoreSet.has(name)
+      })
+
+      const lines: string[] = []
+      for (let i = 0; i < filtered.length; i++) {
+        const item = filtered[i]
+        if (!item) continue
+        const isLast = i === filtered.length - 1
+        const connector = isLast ? '└── ' : '├── '
+        const isDir = item.endsWith('/')
+        const name = item
+        lines.push(`${prefix}${connector}${name}`)
+
+        if (isDir && depth < maxDepth) {
+          const nextRel = relPath === '.' ? name.slice(0, -1) : `${relPath}/${name.slice(0, -1)}`
+          const nextPrefix = prefix + (isLast ? '    ' : '│   ')
+          const subLines = await buildTree(nextRel, depth + 1, nextPrefix)
+          lines.push(...subLines)
+        }
+      }
+      return lines
+    }
+
+    const treeLines = await buildTree(rootPath, 1, '')
+    const content = `${rootPath}/\n${treeLines.join('\n')}` || `${rootPath}/ (empty)`
+
+    return {
+      ok: true,
+      content,
+      display: { kind: 'plain', title: `Tree: ${rootPath}` }
+    }
+  }
+}
+
+const gitSummary: BuiltinTool = {
+  definition: {
+    name: 'git_summary',
+    description: 'Get git status, current branch, and recent commit history for the workspace.',
+    risk: 'read',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  async execute(_input, ctx) {
+    const res = await window.flashgent.shell.run({
+      command: 'git branch --show-current && git status --short && git log -n 5 --oneline',
+      cwd: ctx.cwd,
+      timeoutMs: 8000
+    })
+
+    if (!res.ok) {
+      return { ok: false, content: `Not a git repo or git error: ${res.error}` }
+    }
+
+    const stdout = res.value.stdout.trim()
+    return {
+      ok: res.value.exitCode === 0,
+      content: stdout || 'No git output or clean working directory.',
+      display: { kind: 'shell', title: 'Git Summary' }
+    }
+  }
+}
+
+const httpRequest: BuiltinTool = {
+  definition: {
+    name: 'http_request',
+    description:
+      'Send a custom HTTP request (GET, POST, PUT, DELETE) with custom headers or JSON body. Useful for testing APIs and dev servers.',
+    risk: 'read',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Target URL.' },
+        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
+        headers: { type: 'object', description: 'Key-value map of HTTP headers.' },
+        body: { type: 'string', description: 'Request body (e.g. JSON string).' }
+      },
+      required: ['url']
+    }
+  },
+  async execute(input) {
+    const url = str(input, 'url')
+    const method = str(input, 'method', 'GET').toUpperCase()
+    const rawHeaders = input.headers && typeof input.headers === 'object' ? input.headers : {}
+    const body = typeof input.body === 'string' ? input.body : undefined
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'flashgent/0.1'
+    }
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      if (typeof v === 'string') headers[k] = v
+    }
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: method !== 'GET' ? body : undefined
+      })
+
+      const statusText = `HTTP ${response.status} ${response.statusText}`
+      const text = await response.text()
+      const preview = text.length > 50000 ? text.slice(0, 50000) + '\n...[truncated]' : text
+
+      return {
+        ok: response.ok,
+        content: `[${statusText}]\n\n${preview}`,
+        display: { kind: 'plain', title: `${method} ${url}` }
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        content: `HTTP request failed: ${err instanceof Error ? err.message : String(err)}`
+      }
     }
   }
 }
@@ -388,7 +546,10 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
   runShell,
   shellOutput,
   webFetch,
-  webSearch
+  webSearch,
+  directoryTree,
+  gitSummary,
+  httpRequest
 ]
 
 export const BUILTIN_BY_NAME = new Map(BUILTIN_TOOLS.map((t) => [t.definition.name, t]))

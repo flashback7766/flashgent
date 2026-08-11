@@ -104,18 +104,26 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
 
   const attachments = input.attachments.reduce((sum, a) => sum + estimateTokens(a.content), 0)
 
+  const staticSchemas = systemPrompt + projectInstructions + builtin + mcp + attachments
+  const estimatedNoOverhead = staticSchemas + prose + tools
+
+  const measured = input.measured ?? null
+  const fromServer = measured !== null && measured > estimatedNoOverhead
+  const overhead = fromServer ? measured - estimatedNoOverhead : 0
+  const totalMessagesTokens = prose + tools + overhead
+
   const slices: ContextSlice[] = [
     {
-      // Tool traffic is part of the conversation as far as the model is
-      // concerned, so it belongs under Messages — with a breakdown for when
-      // you need to know which half is the problem.
       id: 'messages',
       label: 'Messages',
-      tokens: prose + tools,
+      tokens: totalMessagesTokens,
       colour: 'bg-brand',
       children: [
         { id: 'messages-prose', label: 'Prose & reasoning', tokens: prose, colour: 'bg-brand' },
-        { id: 'messages-tools', label: 'Tool calls & results', tokens: tools, colour: 'bg-ok' }
+        { id: 'messages-tools', label: 'Tool calls & results', tokens: tools, colour: 'bg-ok' },
+        ...(overhead > 0
+          ? [{ id: 'messages-overhead', label: 'Wire format & model overhead', tokens: overhead, colour: 'bg-brand-soft' }]
+          : [])
       ].filter((child) => child.tokens > 0)
     },
     { id: 'system', label: 'System prompt', tokens: systemPrompt, colour: 'bg-warn' },
@@ -143,25 +151,8 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
     { id: 'attachments', label: 'Pending attachments', tokens: attachments, colour: 'bg-bad' }
   ].filter((slice) => slice.tokens > 0)
 
-  const estimated = slices.reduce((sum, slice) => sum + slice.tokens, 0)
-
-  // The server's number is the truth about how full the window is, and it is
-  // what the ring shows. Where it exceeds what we can itemise — chat templates,
-  // tokeniser differences, anything the renderer never sees — name the
-  // remainder instead of letting the rows quietly disagree with the ring.
-  const measured = input.measured ?? null
-  const fromServer = measured !== null && measured > estimated
+  const estimated = estimatedNoOverhead + overhead
   const used = fromServer ? measured : estimated
-
-  if (fromServer) {
-    slices.push({
-      id: 'unaccounted',
-      label: 'Not itemised',
-      tokens: used - estimated,
-      colour: 'bg-line'
-    })
-  }
-
   const free = input.limit === null ? 0 : Math.max(0, input.limit - used)
 
   return { slices, used, free, limit: input.limit, estimated, fromServer }

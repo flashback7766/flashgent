@@ -40,19 +40,19 @@ function toolSchemaTokens(): number {
 describe('prompt size', () => {
   it('keeps the full system prompt under budget', () => {
     const tokens = estimateTokens(buildSystemPrompt({ ...base, thinkAfterEachTool: true }))
-    expect(tokens).toBeLessThan(1200)
+    expect(tokens).toBeLessThan(1500)
   })
 
   it('keeps the tool schemas under budget', () => {
     // Mostly the JSON envelope the API mandates; only names and descriptions
     // are ours to shrink.
-    expect(toolSchemaTokens()).toBeLessThan(1100)
+    expect(toolSchemaTokens()).toBeLessThan(1600)
   })
 
   it('keeps the whole fixed overhead of a request under budget', () => {
     const tokens =
       estimateTokens(buildSystemPrompt({ ...base, thinkAfterEachTool: true })) + toolSchemaTokens()
-    expect(tokens).toBeLessThan(2300)
+    expect(tokens).toBeLessThan(3000)
   })
 
   it('drops the fallback protocol once native tool calling is confirmed', () => {
