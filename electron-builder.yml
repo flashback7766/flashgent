@@ -1,0 +1,48 @@
+appId: gg.flashback.flashgent
+productName: flashgent
+copyright: Copyright © 2026 flashback
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# better-sqlite3 ships a native binding that must not be bundled into the asar.
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+
+win:
+  target:
+    # Installer, plus a portable archive for people who would rather not run one.
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+  # "Open dir with flashgent" in the Explorer context menu, plus the `fgen`
+  # shim on PATH, are registered per-user by this script.
+  include: resources/installer.nsh
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  synopsis: Local-first coding agent powered by LM Studio
+
+# CI publishes to a GitHub release; the local pack:* scripts pass
+# --publish never, so nothing leaves this machine by accident.
+publish:
+  provider: github

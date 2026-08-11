@@ -1,0 +1,376 @@
+@import 'tailwindcss';
+
+/* The app toggles `.dark` on <html> from the appearance setting, which may
+   itself be following the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-canvas: #faf9f5;
+  --color-surface: #ffffff;
+  --color-raised: #f0eee6;
+  --color-line: #e3e1d8;
+  --color-ink: #1f1e1c;
+  --color-muted: #6b6862;
+  --color-faint: #97948c;
+
+  --color-brand: #d97757;
+  --color-brand-soft: #f5e0d8;
+
+  --color-ok: #3f8f5f;
+  --color-warn: #b8862b;
+  --color-bad: #c2482f;
+
+  --font-sans:
+    'Segoe UI', -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, Roboto, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'SF Mono', monospace;
+}
+
+.dark {
+  --color-canvas: #191917;
+  --color-surface: #21201d;
+  --color-raised: #2b2a26;
+  --color-line: #38362f;
+  --color-ink: #faf9f5;
+  --color-muted: #a5a29a;
+  --color-faint: #7a776f;
+  --color-brand-soft: #3a2820;
+
+  --color-ok: #6cc48a;
+  --color-warn: #e0b551;
+  --color-bad: #e57358;
+}
+
+/* Near-black variant, for when the standard dark theme is still too bright. */
+.dark.contrast {
+  --color-canvas: #0d0d0c;
+  --color-surface: #141413;
+  --color-raised: #1c1b1a;
+  --color-line: #2b2a27;
+}
+
+:root {
+  --fg-accent: #d97757;
+  --fg-font-size: 14px;
+  --fg-transcript-size: 14px;
+  --fg-transcript-width: 48rem;
+  --fg-code-font: var(--font-mono);
+  --fg-ui-font: var(--font-sans);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--fg-ui-font);
+  font-size: var(--fg-font-size);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Transcript column: width and text size are user-controlled. */
+.fg-column {
+  max-width: var(--fg-transcript-width);
+}
+.fg-transcript {
+  font-size: var(--fg-transcript-size);
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--fg-code-font);
+}
+
+/* Slim scrollbars that read as part of the surface rather than the OS. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+  background-clip: content-box;
+}
+
+/* Focus ring: visible for keyboard users, quiet for mouse users. */
+:focus-visible {
+  outline: 2px solid var(--fg-accent);
+  outline-offset: 2px;
+  transition: outline-color 120ms ease;
+}
+
+/* Text controls draw their own focus state on the surrounding box, so the
+   global ring would sit on top of it — a second, differently-rounded outline
+   a couple of pixels off. Suppress it and let the border do the work. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
+/* --- Motion --------------------------------------------------------------
+   One easing curve everywhere, so the whole app decelerates the same way. */
+:root {
+  --fg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fg-fast: 120ms;
+  --fg-base: 180ms;
+}
+
+/* Interactive surfaces ease their colours instead of snapping. Deliberately
+   narrow: transitioning `all` would animate layout and cost more than it buys. */
+button,
+a,
+input,
+textarea,
+select,
+[role='switch'],
+[role='button'] {
+  transition:
+    background-color var(--fg-fast) ease,
+    border-color var(--fg-fast) ease,
+    color var(--fg-fast) ease,
+    opacity var(--fg-fast) ease,
+    box-shadow var(--fg-fast) ease,
+    transform var(--fg-fast) var(--fg-ease);
+}
+
+/* Pressing something should feel like pressing something. */
+button:active:not(:disabled),
+[role='button']:active {
+  transform: scale(0.97);
+}
+
+@keyframes fg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fg-enter {
+  animation: fg-enter var(--fg-base) var(--fg-ease);
+}
+
+/* Panels grow from the edge they are anchored to. */
+@keyframes fg-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fg-pop {
+  animation: fg-pop 140ms var(--fg-ease);
+  transform-origin: bottom center;
+}
+
+/* Modal: backdrop fades, dialog rises. */
+@keyframes fg-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fg-fade {
+  animation: fg-fade var(--fg-fast) ease;
+}
+
+@keyframes fg-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fg-rise {
+  animation: fg-rise 220ms var(--fg-ease);
+}
+
+/* Disclosure bodies (tool results, thinking, code) unfold rather than appear. */
+@keyframes fg-unfold {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+.fg-unfold {
+  animation: fg-unfold 200ms var(--fg-ease);
+}
+
+/* Toasts slide in from the edge they live on. */
+@keyframes fg-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fg-slide-in {
+  animation: fg-slide-in var(--fg-base) var(--fg-ease);
+}
+
+@keyframes fg-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.fg-pulse {
+  animation: fg-pulse 1.2s ease-in-out infinite;
+}
+
+/* Indeterminate bar, for work with no measurable progress. */
+@keyframes fg-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+.fg-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  border-radius: inherit;
+  background: var(--color-brand);
+  animation: fg-sweep 1.4s ease-in-out infinite;
+}
+
+/* Progress and meter fills ease to their new value. */
+.fg-meter {
+  transition: width 320ms var(--fg-ease);
+}
+.fg-ring {
+  transition: stroke-dashoffset 320ms var(--fg-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* --- Syntax highlighting -------------------------------------------------
+   A compact highlight.js theme tuned to the app palette so code does not
+   fight the surrounding UI in either mode. */
+.hljs {
+  color: var(--color-ink);
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--color-faint);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: #b06fc4;
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal,
+.dark .hljs-doctag {
+  color: #cf9bdd;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: #3f8f5f;
+}
+.dark .hljs-string,
+.dark .hljs-regexp,
+.dark .hljs-addition {
+  color: #8fce9f;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: #b8862b;
+}
+.dark .hljs-number,
+.dark .hljs-symbol,
+.dark .hljs-bullet {
+  color: #e0b551;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: #2f6fb8;
+}
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-name {
+  color: #79b0e8;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--color-brand);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title {
+  color: #1f8f8f;
+}
+.dark .hljs-type,
+.dark .hljs-built_in,
+.dark .hljs-class .hljs-title {
+  color: #66c2c2;
+}
+.hljs-deletion {
+  color: var(--color-bad);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}

@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and release, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            # NSIS installer plus the portable zip.
+            script: release:win
+          - os: ubuntu-latest
+            script: release:linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # A release that fails its own tests is worse than no release.
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Build and publish
+        run: npm run ${{ matrix.script }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flashgent-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: warn

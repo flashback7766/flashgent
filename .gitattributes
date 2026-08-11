@@ -1,0 +1,5 @@
+﻿# Normalise line endings so a Windows checkout does not rewrite every file
+# when CI builds it on Linux.
+* text=auto eol=lf
+*.png binary
+*.ico binary
