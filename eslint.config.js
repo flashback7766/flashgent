@@ -6,6 +6,26 @@ import prettier from 'eslint-config-prettier'
 export default [
   { ignores: ['out/**', 'dist/**', 'node_modules/**', 'test-results/**', 'playwright-report/**'] },
   js.configs.recommended,
+  // Node.js scripts (e.g. scripts/make-icon.mjs) need Buffer, process, console, etc.
+  {
+    files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: {
+        Buffer: 'readonly',
+        process: 'readonly',
+        console: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        URL: 'readonly'
+      }
+    },
+    rules: {
+      'prefer-const': 'error',
+      eqeqeq: ['error', 'smart']
+    }
+  },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
