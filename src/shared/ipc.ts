@@ -266,7 +266,7 @@ export interface FlashgentApi {
     install(): Promise<IpcResult<boolean>>
   }
   benchmark: {
-    run(): Promise<IpcResult<void>>
+    run(model?: string): Promise<IpcResult<void>>
     onProgress(cb: (progress: BenchmarkProgress) => void): () => void
     onDone(cb: (result: { report: BenchmarkReport }) => void): () => void
   }

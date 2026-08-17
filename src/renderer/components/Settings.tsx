@@ -338,8 +338,13 @@ function BenchmarkPanel({
     maxScore: number
     scenarios: Array<{ tier: 'easy' | 'medium' | 'hard'; earnedPoints: number; maxPoints: number; passed: boolean }>
   } | null
-  onRun: () => void
+  onRun: (model?: string) => void
 }) {
+  const models = useApp((s) => s.models)
+  const config = useApp((s) => s.config)
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(
+    config?.lastModel ?? models[0]?.id ?? undefined
+  )
   const categories = [
     { tier: 'easy' as const, label: 'Easy' },
     { tier: 'medium' as const, label: 'Medium' },
@@ -353,10 +358,24 @@ function BenchmarkPanel({
         <p className="text-[12.5px] leading-relaxed text-muted">
           Run all 30 isolated scenarios to check Flashgent&apos;s tool workflow baseline.
         </p>
+          <div className="mt-3 flex items-center gap-3">
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value || undefined)}
+              className="rounded border border-line bg-surface px-2 py-1 text-[12px] text-ink"
+            >
+              <option value="">(Default)</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id}
+                </option>
+              ))}
+            </select>
+
         <button
           type="button"
           disabled={running}
-          onClick={onRun}
+            onClick={() => onRun(selectedModel)}
           className="mt-4 rounded-md bg-brand px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? 'Running Benchmark…' : 'Run Benchmark'}
@@ -955,7 +974,7 @@ export function Settings(): React.ReactElement | null {
                 progress={benchmarkProgress}
                 modelTokensPerSecond={modelTokensPerSecond}
                 report={benchmarkReport}
-                onRun={() => void runBenchmark()}
+                onRun={(model) => void runBenchmark(model)}
               />
             )}
 

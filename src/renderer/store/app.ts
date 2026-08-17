@@ -748,11 +748,11 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 
-  async runBenchmark() {
+  async runBenchmark(model?: string) {
     if (get().benchmarkRunning) return
     set({ benchmarkRunning: true, benchmarkProgress: null, benchmarkReport: null })
     try {
-      must(await api().benchmark.run())
+      must(await api().benchmark.run(model))
     } catch (err) {
       set({ benchmarkRunning: false })
       get().toast('error', `Benchmark failed: ${err instanceof Error ? err.message : String(err)}`)

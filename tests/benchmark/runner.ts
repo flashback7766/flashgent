@@ -252,13 +252,16 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
  */
 export async function runBenchmark(
   modelName = 'Local-LLM (Flashgent Default)',
-  evaluator?: (sc: BenchmarkScenario, ctx: BenchmarkAssertionContext) => Promise<{ resultText?: string; toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> }>
+  evaluator?: (sc: BenchmarkScenario, ctx: BenchmarkAssertionContext) => Promise<{ resultText?: string; toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> }>,
+  progressCb?: (progress: { index: number; total: number; scenario: string; score: number }) => void
 ): Promise<BenchmarkReport> {
   const scenarioResults: ScenarioResult[] = []
 
-  for (const scenario of DATASET_30_SCENARIOS) {
+  const total = DATASET_30_SCENARIOS.length
+  for (const [offset, scenario] of DATASET_30_SCENARIOS.entries()) {
     const res = await executeScenario(scenario, evaluator)
     scenarioResults.push(res)
+    progressCb?.({ index: offset + 1, total, scenario: scenario.name, score: res.earnedPoints })
   }
 
   // Calculate Base Scores

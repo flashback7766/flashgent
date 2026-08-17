@@ -80,7 +80,7 @@ const api: FlashgentApi = {
     install: () => call(CH.updaterInstall)
   },
   benchmark: {
-    run: () => call(CH.benchmarkRun),
+    run: (model?: string) => call(CH.benchmarkRun, model),
     onProgress: (cb) => subscribe(CH.evtBenchmarkProgress, cb as never),
     onDone: (cb) => subscribe(CH.evtBenchmarkDone, cb as never)
   },

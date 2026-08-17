@@ -97,6 +97,18 @@ export function initUpdater(): void {
       downloaded: false
     }
     broadcast(CH.evtUpdateAvailable, latestUpdate)
+    // Start background download automatically for packaged apps so the
+    // renderer can show a "Restart to update" button when ready.
+    if (app.isPackaged) {
+      void (async () => {
+        try {
+          logger.info('[updater] auto-starting download')
+          await autoUpdater.downloadUpdate()
+        } catch (err) {
+          logger.warn('[updater] auto-download failed', err instanceof Error ? err.message : String(err))
+        }
+      })()
+    }
   })
 
   autoUpdater.on('update-not-available', (info) => {
