@@ -1,9 +1,11 @@
 import { BrowserWindow, app } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 import { CH } from '../../shared/ipc.js'
 import type { UpdateInfo, UpdateProgress } from '../../shared/types.js'
 import { logger } from '../logger.js'
 import { handle } from './result.js'
+
+const getAutoUpdater = () => electronUpdater.autoUpdater
 
 function broadcast<T>(channel: string, payload: T): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -64,6 +66,8 @@ function isVersionNewer(candidate: string, current: string): boolean {
 }
 
 export function initUpdater(): void {
+  const autoUpdater = getAutoUpdater()
+
   // Configure autoUpdater
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
@@ -134,6 +138,8 @@ export function initUpdater(): void {
 }
 
 export function registerUpdaterHandlers(): void {
+  const autoUpdater = getAutoUpdater()
+
   handle<void, UpdateInfo>(CH.updaterCheck, async () => {
     if (!app.isPackaged) {
       return {
