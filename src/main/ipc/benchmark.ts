@@ -1,7 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { runBenchmark } from '../../../tests/benchmark/runner.js'
 import { CH } from '../../shared/ipc.js'
-import type { BenchmarkProgress, BenchmarkReport, ScenarioResult } from '../../shared/types.js'
 import { handle } from './result.js'
 
 let running = false

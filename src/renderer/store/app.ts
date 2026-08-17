@@ -141,7 +141,7 @@ interface AppState {
   checkForUpdates: () => Promise<void>
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
-  runBenchmark: () => Promise<void>
+  runBenchmark: (model?: string) => Promise<void>
 }
 
 /** Resolvers for the two places the loop pauses and waits on the user. */

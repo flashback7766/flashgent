@@ -380,7 +380,7 @@ function BenchmarkPanel({
         >
           {running ? 'Running Benchmark…' : 'Run Benchmark'}
         </button>
-
+          </div>
         {progress && (
           <div className="mt-4 rounded-lg border border-line bg-canvas p-3">
             <div className="flex justify-between gap-3 text-[11.5px] text-muted">

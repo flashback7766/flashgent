@@ -388,7 +388,7 @@ function parseModelFromArgs(): string | null {
     if (a === '--model' || a === '-m') {
       return argv[i + 1] ?? null
     }
-    if (a.startsWith('--model=')) {
+    if (a && a.startsWith('--model=')) {
       return a.split('=')[1] ?? null
     }
   }
