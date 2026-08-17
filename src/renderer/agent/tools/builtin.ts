@@ -443,7 +443,9 @@ const directoryTree: BuiltinTool = {
     }
 
     const treeLines = await buildTree(rootPath, 1, '')
-    const content = `${rootPath}/\n${treeLines.join('\n')}` || `${rootPath}/ (empty)`
+    const content = treeLines.length
+      ? `${rootPath}/\n${treeLines.join('\n')}`
+      : `${rootPath}/ (empty)`
 
     return {
       ok: true,
