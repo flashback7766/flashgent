@@ -135,6 +135,26 @@ export function initUpdater(): void {
       error: err.message
     }
   })
+
+  // Perform an initial check on startup for packaged apps and schedule
+  // periodic checks so installed copies discover new releases automatically.
+  if (app.isPackaged) {
+    void (async () => {
+      try {
+        logger.info('[updater] performing initial update check')
+        await autoUpdater.checkForUpdates()
+      } catch (err) {
+        logger.warn('[updater] initial check failed', err instanceof Error ? err.message : String(err))
+      }
+    })()
+
+    // Poll every 6 hours for new updates.
+    setInterval(() => {
+      void autoUpdater.checkForUpdates().catch((err) => {
+        logger.warn('[updater] periodic check failed', err instanceof Error ? err.message : String(err))
+      })
+    }, 1000 * 60 * 60 * 6)
+  }
 }
 
 export function registerUpdaterHandlers(): void {

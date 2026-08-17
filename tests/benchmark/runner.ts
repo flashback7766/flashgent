@@ -374,6 +374,25 @@ function printCliTable(report: BenchmarkReport): void {
 }
 
 // Auto-run if executed directly via CLI
+function parseModelFromArgs(): string | null {
+  // 1) environment variable override
+  if (process.env.BENCHMARK_MODEL) return process.env.BENCHMARK_MODEL
+
+  // 2) simple CLI parsing: support `--model "Model Name"` or `-m "Model Name"`
+  const argv = process.argv.slice(2)
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--model' || a === '-m') {
+      return argv[i + 1] ?? null
+    }
+    if (a.startsWith('--model=')) {
+      return a.split('=')[1] ?? null
+    }
+  }
+  return null
+}
+
 if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}`) {
-  void runBenchmark()
+  const modelArg = parseModelFromArgs() || undefined
+  void runBenchmark(modelArg)
 }
