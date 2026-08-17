@@ -71,6 +71,8 @@ export interface AgentRunOptions {
   forceReact: boolean
   /** The server confirmed the model does native tool calls. */
   nativeToolsConfirmed?: boolean
+  /** Current subtask recursion depth (0 for root session). */
+  subtaskDepth?: number
   signal: AbortSignal
   events: AgentEvents
 }
@@ -517,7 +519,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       const ctx = {
         cwd: options.cwd,
         timeoutMs: config.toolTimeoutMs,
-        maxOutputChars: config.maxToolOutputChars
+        maxOutputChars: config.maxToolOutputChars,
+        subtaskDepth: options.subtaskDepth ?? 0
       }
       // Subtasks are capped so a fan-out cannot swamp the server; reads are
       // cheap IPC and need no cap.

@@ -417,5 +417,21 @@ export interface FetchResult {
   truncated: boolean
 }
 
+export interface UpdateInfo {
+  available: boolean
+  version?: string
+  releaseDate?: string
+  releaseNotes?: string
+  downloaded?: boolean
+  error?: string
+}
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
 /** Uniform envelope for every IPC call so the renderer never sees a raw throw. */
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string }

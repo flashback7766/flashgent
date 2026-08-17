@@ -13,4 +13,5 @@ test-results/
 playwright-report/
 e2e-run.log
 e2e.log
+benchmarks/reports/
 *.tsbuildinfo

@@ -15,6 +15,8 @@ export type SubtaskRunner = (
   signal: AbortSignal
 ) => Promise<{ text: string; ok: boolean }>
 
+export const MAX_SUBTASK_DEPTH = 1
+
 export function createSubtaskTool(run: SubtaskRunner, signal: AbortSignal): BuiltinTool {
   return {
     definition: {
@@ -43,10 +45,17 @@ export function createSubtaskTool(run: SubtaskRunner, signal: AbortSignal): Buil
     },
 
     async execute(input, ctx): Promise<ToolResult> {
+      const depth = ctx.subtaskDepth ?? 0
+      if (depth >= MAX_SUBTASK_DEPTH) {
+        throw new Error(
+          `Subtasks cannot spawn nested subtasks (maximum recursion depth of ${MAX_SUBTASK_DEPTH} reached).`
+        )
+      }
+
       const description = typeof input.description === 'string' ? input.description.trim() : ''
       if (!description) throw new Error('run_subtask needs a description.')
 
-      const outcome = await run(description, ctx, signal)
+      const outcome = await run(description, { ...ctx, subtaskDepth: depth + 1 }, signal)
       return {
         ok: outcome.ok,
         content: outcome.text || '(the subtask returned nothing)',

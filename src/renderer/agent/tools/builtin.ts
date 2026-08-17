@@ -5,6 +5,8 @@ export interface ToolContext {
   timeoutMs: number
   /** Ceiling on tool output handed to the model. */
   maxOutputChars: number
+  /** Subtask recursion depth counter to prevent infinite nesting. */
+  subtaskDepth?: number
 }
 
 export interface BuiltinTool {

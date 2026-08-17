@@ -17,7 +17,9 @@ import type {
   Message,
   Session,
   ShellRequest,
-  ShellResult
+  ShellResult,
+  UpdateInfo,
+  UpdateProgress
 } from './types.js'
 
 /** Channel names. Kept in one place so main and preload cannot drift apart. */
@@ -71,12 +73,19 @@ export const CH = {
   appLog: 'app:log',
   appExport: 'app:export',
 
+  updaterCheck: 'updater:check',
+  updaterDownload: 'updater:download',
+  updaterInstall: 'updater:install',
+
   /** main -> renderer */
   evtLlmChunk: 'evt:llm:chunk',
   evtShellData: 'evt:shell:data',
   evtMcpStatus: 'evt:mcp:status',
   evtThemeChanged: 'evt:theme:changed',
-  evtOpenPath: 'evt:open:path'
+  evtOpenPath: 'evt:open:path',
+  evtUpdateAvailable: 'evt:update:available',
+  evtUpdateProgress: 'evt:update:progress',
+  evtUpdateDownloaded: 'evt:update:downloaded'
 } as const
 
 export interface SessionCreateInput {
@@ -246,6 +255,11 @@ export interface FlashgentApi {
      */
     pathForFile(file: File): string
   }
+  updater: {
+    check(): Promise<IpcResult<UpdateInfo>>
+    download(): Promise<IpcResult<boolean>>
+    install(): Promise<IpcResult<boolean>>
+  }
   on: {
     /** Raw SSE text for an in-flight completion. */
     llmChunk(cb: (requestId: string, chunk: string) => void): () => void
@@ -253,5 +267,8 @@ export interface FlashgentApi {
     mcpStatus(cb: (statuses: McpStatus[]) => void): () => void
     themeChanged(cb: (isDark: boolean) => void): () => void
     openPath(cb: (path: string) => void): () => void
+    updateAvailable(cb: (info: UpdateInfo) => void): () => void
+    updateProgress(cb: (progress: UpdateProgress) => void): () => void
+    updateDownloaded(cb: (info: UpdateInfo) => void): () => void
   }
 }

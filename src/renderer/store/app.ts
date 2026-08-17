@@ -11,7 +11,9 @@ import {
   type PermissionDecision,
   type PermissionMode,
   type Session,
-  type TokenUsage
+  type TokenUsage,
+  type UpdateInfo,
+  type UpdateProgress
 } from '@shared/types'
 import { create } from 'zustand'
 import { hasWorkflows } from '../agent/effort.js'
@@ -122,11 +124,17 @@ interface AppState {
   removeAttachment: (path: string) => void
   saveSnippet: (code: string, language: string) => Promise<void>
 
+  updateInfo: UpdateInfo | null
+  updateProgress: UpdateProgress | null
+
   toast: (kind: Toast['kind'], message: string) => void
   dismissToast: (id: string) => void
   setSettingsOpen: (open: boolean) => void
   setSearchQuery: (query: string) => void
   exportSession: (format: 'md' | 'json') => Promise<void>
+  checkForUpdates: () => Promise<void>
+  downloadUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
 }
 
 /** Resolvers for the two places the loop pauses and waits on the user. */
@@ -176,6 +184,8 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   settingsOpen: false,
   searchQuery: '',
+  updateInfo: null,
+  updateProgress: null,
 
   async init() {
     const config = must(await api().config.get())
@@ -194,6 +204,17 @@ export const useApp = create<AppState>((set, get) => ({
       void get().newSession(path)
     })
     api().on.themeChanged(() => applyAppearance(get().config))
+    api().on.updateAvailable((updateInfo) => {
+      set({ updateInfo })
+      get().toast('info', `Update available: v${updateInfo.version}`)
+    })
+    api().on.updateProgress((updateProgress) => {
+      set({ updateProgress })
+    })
+    api().on.updateDownloaded((updateInfo) => {
+      set({ updateInfo, updateProgress: null })
+      get().toast('success', `Update v${updateInfo.version} downloaded and ready to install.`)
+    })
 
     await refreshMcpTools(set)
     await get().refreshModels()
@@ -678,6 +699,36 @@ export const useApp = create<AppState>((set, get) => ({
       if (path) get().toast('success', `Exported to ${path}`)
     } catch (err) {
       get().toast('error', err instanceof Error ? err.message : String(err))
+    }
+  },
+
+  async checkForUpdates() {
+    try {
+      get().toast('info', 'Checking for updates...')
+      const info = must(await api().updater.check())
+      set({ updateInfo: info })
+      if (!info.available) {
+        get().toast('info', `You are on the latest version (v${info.version ?? '0.1.2'}).`)
+      }
+    } catch (err) {
+      get().toast('error', `Update check failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+
+  async downloadUpdate() {
+    try {
+      get().toast('info', 'Starting update download...')
+      must(await api().updater.download())
+    } catch (err) {
+      get().toast('error', `Download failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+
+  async installUpdate() {
+    try {
+      must(await api().updater.install())
+    } catch (err) {
+      get().toast('error', `Install failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 }))

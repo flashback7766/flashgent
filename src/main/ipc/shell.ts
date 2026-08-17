@@ -85,10 +85,16 @@ export function registerShellHandlers(): void {
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
       task.stdout += chunk
+      if (task.stdout.length > MAX_OUTPUT_CHARS * 2) {
+        task.stdout = clip(task.stdout, MAX_OUTPUT_CHARS).text
+      }
       if (req.background) broadcast(id, chunk, 'stdout')
     })
     child.stderr.on('data', (chunk: string) => {
       task.stderr += chunk
+      if (task.stderr.length > MAX_OUTPUT_CHARS * 2) {
+        task.stderr = clip(task.stderr, MAX_OUTPUT_CHARS).text
+      }
       if (req.background) broadcast(id, chunk, 'stderr')
     })
 
@@ -109,6 +115,12 @@ export function registerShellHandlers(): void {
     // Background: hand the caller a task id and let it keep running.
     if (req.background) {
       logger.info(`background task ${id} started: ${req.command}`)
+      // Clean up finished background tasks after a retention window (5 mins)
+      void settled.then(() => {
+        setTimeout(() => {
+          tasks.delete(id)
+        }, 5 * 60 * 1000)
+      })
       return {
         stdout: '',
         stderr: '',

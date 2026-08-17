@@ -4,6 +4,11 @@
 ;  * the `fgen` launcher on PATH
 ;
 ; Both are registered per-user so the installer never needs elevation.
+; Upgrades automatically retain %APPDATA%\flashgent (SQLite DB) and %USERPROFILE%\.flashgent (configs).
+
+!macro customInit
+  ; On upgrade, preserve all user databases and configuration files
+!macroend
 
 !macro customInstall
   ; --- Explorer context menu on directories --------------------------------

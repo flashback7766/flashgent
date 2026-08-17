@@ -333,6 +333,11 @@ export function Settings(): React.ReactElement | null {
   const connectionError = useApp((s) => s.connectionError)
   const models = useApp((s) => s.models)
   const info = useApp((s) => s.info)
+  const updateInfo = useApp((s) => s.updateInfo)
+  const updateProgress = useApp((s) => s.updateProgress)
+  const checkForUpdates = useApp((s) => s.checkForUpdates)
+  const downloadUpdate = useApp((s) => s.downloadUpdate)
+  const installUpdate = useApp((s) => s.installUpdate)
 
   const [tab, setTab] = useState<Tab>('general')
   const [draft, setDraft] = useState<AppConfig | null>(config)
@@ -836,6 +841,69 @@ export function Settings(): React.ReactElement | null {
                   A local-first coding agent by <b className="text-ink">flashback</b>. Sessions,
                   tool calls and settings never leave this machine.
                 </p>
+
+                <div className="mt-4 rounded-lg border border-line bg-canvas p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-[12.5px] font-medium text-ink">Software Updates</div>
+                      <div className="text-[11.5px] text-faint">
+                        {updateInfo?.available
+                          ? `New version available: v${updateInfo.version}`
+                          : `You are on the latest version (v${info.version})`}
+                      </div>
+                    </div>
+                    <div>
+                      {updateInfo?.downloaded ? (
+                        <button
+                          type="button"
+                          onClick={() => void installUpdate()}
+                          className="rounded bg-brand px-3 py-1 text-[11.5px] font-medium text-white hover:opacity-90"
+                        >
+                          Restart & Install
+                        </button>
+                      ) : updateInfo?.available ? (
+                        <button
+                          type="button"
+                          onClick={() => void downloadUpdate()}
+                          className="rounded bg-brand px-3 py-1 text-[11.5px] font-medium text-white hover:opacity-90"
+                        >
+                          Download v{updateInfo.version}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void checkForUpdates()}
+                          className="rounded border border-line bg-raised px-3 py-1 text-[11.5px] text-muted hover:text-ink"
+                        >
+                          Check for Updates
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {updateProgress && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-[11px] text-faint">
+                        <span>Downloading update...</span>
+                        <span>{updateProgress.percent}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-line">
+                        <div
+                          className="h-full bg-brand transition-all"
+                          style={{ width: `${updateProgress.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {updateInfo?.releaseNotes && (
+                    <div className="mt-3 rounded border border-line bg-raised/50 p-2 text-[11.5px] text-muted">
+                      <div className="font-medium text-ink">Release Notes:</div>
+                      <div className="mt-1 whitespace-pre-wrap">{updateInfo.releaseNotes}</div>
+                    </div>
+                  )}
+                </div>
+
                 <dl className="mt-4 grid grid-cols-[8rem_1fr] gap-y-1.5 font-mono text-[11.5px] text-muted">
                   <dt className="text-faint">electron</dt>
                   <dd>{info.electron}</dd>

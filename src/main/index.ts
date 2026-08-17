@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, dialog, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme } from 'electron'
 import { existsSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { CH } from '../shared/ipc.js'
@@ -11,6 +11,7 @@ import { abortAllStreams, registerLlmHandlers } from './ipc/llm.js'
 import { connectEnabledServers, disconnectAll, registerMcpHandlers } from './ipc/mcp.js'
 import { registerNetHandlers } from './ipc/net.js'
 import { killAllTasks, registerShellHandlers } from './ipc/shell.js'
+import { initUpdater, registerUpdaterHandlers } from './ipc/updater.js'
 import { initLogger, logger } from './logger.js'
 import { ensureDirs, loadEnvFile, logDir } from './paths.js'
 import { createMainWindow } from './window.js'
@@ -97,6 +98,8 @@ async function bootstrap(): Promise<void> {
   registerNetHandlers()
   registerLlmHandlers()
   registerMcpHandlers()
+  registerUpdaterHandlers()
+  initUpdater()
 
   mainWindow = createMainWindow(join(__dirname, '../preload/index.mjs'))
   loadRenderer(mainWindow)

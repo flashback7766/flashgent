@@ -74,12 +74,20 @@ const api: FlashgentApi = {
     exportSession: (req) => call(CH.appExport, req),
     pathForFile: (file) => webUtils.getPathForFile(file)
   },
+  updater: {
+    check: () => call(CH.updaterCheck),
+    download: () => call(CH.updaterDownload),
+    install: () => call(CH.updaterInstall)
+  },
   on: {
     llmChunk: (cb) => subscribe(CH.evtLlmChunk, cb as never),
     shellData: (cb) => subscribe(CH.evtShellData, cb as never),
     mcpStatus: (cb) => subscribe(CH.evtMcpStatus, cb as never),
     themeChanged: (cb) => subscribe(CH.evtThemeChanged, cb as never),
-    openPath: (cb) => subscribe(CH.evtOpenPath, cb as never)
+    openPath: (cb) => subscribe(CH.evtOpenPath, cb as never),
+    updateAvailable: (cb) => subscribe(CH.evtUpdateAvailable, cb as never),
+    updateProgress: (cb) => subscribe(CH.evtUpdateProgress, cb as never),
+    updateDownloaded: (cb) => subscribe(CH.evtUpdateDownloaded, cb as never)
   }
 }
 
