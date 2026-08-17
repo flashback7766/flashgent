@@ -19,7 +19,9 @@ import type {
   ShellRequest,
   ShellResult,
   UpdateInfo,
-  UpdateProgress
+  UpdateProgress,
+  BenchmarkProgress,
+  BenchmarkReport
 } from './types.js'
 
 /** Channel names. Kept in one place so main and preload cannot drift apart. */
@@ -77,15 +79,18 @@ export const CH = {
   updaterDownload: 'updater:download',
   updaterInstall: 'updater:install',
 
+  benchmarkRun: 'benchmark:run',
+
   /** main -> renderer */
   evtLlmChunk: 'evt:llm:chunk',
-  evtShellData: 'evt:shell:data',
   evtMcpStatus: 'evt:mcp:status',
   evtThemeChanged: 'evt:theme:changed',
   evtOpenPath: 'evt:open:path',
   evtUpdateAvailable: 'evt:update:available',
   evtUpdateProgress: 'evt:update:progress',
-  evtUpdateDownloaded: 'evt:update:downloaded'
+  evtUpdateDownloaded: 'evt:update:downloaded',
+  evtBenchmarkProgress: 'evt:benchmark:progress',
+  evtBenchmarkDone: 'evt:benchmark:done'
 } as const
 
 export interface SessionCreateInput {
@@ -260,10 +265,14 @@ export interface FlashgentApi {
     download(): Promise<IpcResult<boolean>>
     install(): Promise<IpcResult<boolean>>
   }
+  benchmark: {
+    run(): Promise<IpcResult<void>>
+    onProgress(cb: (progress: BenchmarkProgress) => void): () => void
+    onDone(cb: (result: { report: BenchmarkReport }) => void): () => void
+  }
   on: {
     /** Raw SSE text for an in-flight completion. */
     llmChunk(cb: (requestId: string, chunk: string) => void): () => void
-    shellData(cb: (taskId: string, chunk: string, stream: 'stdout' | 'stderr') => void): () => void
     mcpStatus(cb: (statuses: McpStatus[]) => void): () => void
     themeChanged(cb: (isDark: boolean) => void): () => void
     openPath(cb: (path: string) => void): () => void

@@ -7,6 +7,11 @@ import { useApp } from '../store/app.js'
 import { Markdown } from './Markdown.js'
 import { ToolBlockView } from './ToolBlock.js'
 
+function formatTokensPerSecond(tokens: number, durationMs: number | undefined): string | null {
+  if (!durationMs || durationMs <= 0 || tokens <= 0) return null
+  const speed = tokens / (durationMs / 1000)
+  return `${speed >= 100 ? Math.round(speed) : speed.toFixed(1)} tok/s`
+}
 /** `1h 4m 9s` / `2m 14s` / `9s`, skipping the leading zero units. */
 export function formatElapsed(ms: number): string {
   const total = Math.round(ms / 1000)
@@ -358,11 +363,15 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
           <span className="ml-1 text-[11px] text-faint">
             {formatRelativeTime(message.createdAt)}
           </span>
-          {message.usage && (
-            <span className="ml-auto text-[11px] tabular-nums text-faint">
-              {formatTokens(estimateTurnTokens(message.blocks))} tokens
-            </span>
-          )}
+          {message.usage && (() => {
+            const tokens = estimateTurnTokens(message.blocks)
+            const speed = formatTokensPerSecond(tokens, message.generationMs)
+            return (
+              <span className="ml-auto text-[11px] tabular-nums text-faint">
+                {formatTokens(tokens)} tokens{speed ? ` · ${speed}` : ''}
+              </span>
+            )
+          })()}
         </div>
       </div>
     </article>

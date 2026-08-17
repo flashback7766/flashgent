@@ -79,9 +79,13 @@ const api: FlashgentApi = {
     download: () => call(CH.updaterDownload),
     install: () => call(CH.updaterInstall)
   },
+  benchmark: {
+    run: () => call(CH.benchmarkRun),
+    onProgress: (cb) => subscribe(CH.evtBenchmarkProgress, cb as never),
+    onDone: (cb) => subscribe(CH.evtBenchmarkDone, cb as never)
+  },
   on: {
     llmChunk: (cb) => subscribe(CH.evtLlmChunk, cb as never),
-    shellData: (cb) => subscribe(CH.evtShellData, cb as never),
     mcpStatus: (cb) => subscribe(CH.evtMcpStatus, cb as never),
     themeChanged: (cb) => subscribe(CH.evtThemeChanged, cb as never),
     openPath: (cb) => subscribe(CH.evtOpenPath, cb as never),

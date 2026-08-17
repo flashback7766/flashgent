@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { formatTokens } from '../lib/format.js'
 import { useApp } from '../store/app.js'
 
-type Tab = 'general' | 'models' | 'tools' | 'appearance' | 'keys' | 'about'
+type Tab = 'general' | 'models' | 'tools' | 'appearance' | 'keys' | 'benchmark' | 'about'
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'general', label: 'General' },
@@ -11,6 +11,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'tools', label: 'Tools & Permissions' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'keys', label: 'Keybindings' },
+  { id: 'benchmark', label: 'Benchmark' },
   { id: 'about', label: 'About' }
 ]
 
@@ -322,6 +323,108 @@ function CodePreview({ font }: { font: string }) {
   )
 }
 
+function BenchmarkPanel({
+  running,
+  progress,
+  modelTokensPerSecond,
+  report,
+  onRun
+}: {
+  running: boolean
+  progress: { index: number; total: number; scenario: string; score: number } | null
+  modelTokensPerSecond: number | null
+  report: {
+    totalScore: number
+    maxScore: number
+    scenarios: Array<{ tier: 'easy' | 'medium' | 'hard'; earnedPoints: number; maxPoints: number; passed: boolean }>
+  } | null
+  onRun: () => void
+}) {
+  const categories = [
+    { tier: 'easy' as const, label: 'Easy' },
+    { tier: 'medium' as const, label: 'Medium' },
+    { tier: 'hard' as const, label: 'Hard' }
+  ]
+  const percent = progress ? Math.round((progress.index / progress.total) * 100) : 0
+
+  return (
+    <>
+      <Section title="Agent benchmark">
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          Run all 30 isolated scenarios to check Flashgent&apos;s tool workflow baseline.
+        </p>
+        <button
+          type="button"
+          disabled={running}
+          onClick={onRun}
+          className="mt-4 rounded-md bg-brand px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {running ? 'Running Benchmark…' : 'Run Benchmark'}
+        </button>
+
+        {progress && (
+          <div className="mt-4 rounded-lg border border-line bg-canvas p-3">
+            <div className="flex justify-between gap-3 text-[11.5px] text-muted">
+              <span className="truncate">{progress.scenario}</span>
+              <span className="shrink-0">{progress.index}/{progress.total}</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+              <div className="h-full bg-brand transition-all" style={{ width: `${percent}%` }} />
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {report && (
+        <Section title="Latest result">
+          <div className="rounded-xl border border-brand/40 bg-brand/10 px-5 py-4 text-center">
+            <div className="text-4xl font-semibold tracking-tight text-ink">
+              {report.totalScore}/{report.maxScore}
+            </div>
+            <div className="mt-1 text-[11.5px] uppercase tracking-wider text-muted">Benchmark score</div>
+          </div>
+          {modelTokensPerSecond !== null && (
+            <div className="mt-4 rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] text-muted">
+              Last measured model throughput:{' '}
+              <span className="font-mono text-ink">
+                {modelTokensPerSecond >= 100
+                  ? Math.round(modelTokensPerSecond)
+                  : modelTokensPerSecond.toFixed(1)} tok/s
+              </span>
+            </div>
+          )}
+
+          <div className="mt-4 overflow-hidden rounded-lg border border-line">
+            <table className="w-full text-left text-[12px]">
+              <thead className="bg-raised text-[11px] uppercase tracking-wide text-faint">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Category</th>
+                  <th className="px-3 py-2 text-right font-medium">Score</th>
+                  <th className="px-3 py-2 text-right font-medium">Passed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map(({ tier, label }) => {
+                  const items = report.scenarios.filter((scenario) => scenario.tier === tier)
+                  const score = items.reduce((sum, scenario) => sum + scenario.earnedPoints, 0)
+                  const max = items.reduce((sum, scenario) => sum + scenario.maxPoints, 0)
+                  const passed = items.filter((scenario) => scenario.passed).length
+                  return (
+                    <tr key={tier} className="border-t border-line text-muted">
+                      <td className="px-3 py-2.5 font-medium text-ink">{label}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{score}/{max}</td>
+                      <td className="px-3 py-2.5 text-right">{passed}/{items.length}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
+    </>
+  )
+}
 export function Settings(): React.ReactElement | null {
   const open = useApp((s) => s.settingsOpen)
   const setOpen = useApp((s) => s.setSettingsOpen)
@@ -338,7 +441,18 @@ export function Settings(): React.ReactElement | null {
   const checkForUpdates = useApp((s) => s.checkForUpdates)
   const downloadUpdate = useApp((s) => s.downloadUpdate)
   const installUpdate = useApp((s) => s.installUpdate)
-
+  const benchmarkRunning = useApp((s) => s.benchmarkRunning)
+  const benchmarkProgress = useApp((s) => s.benchmarkProgress)
+  const benchmarkReport = useApp((s) => s.benchmarkReport)
+  const runBenchmark = useApp((s) => s.runBenchmark)
+  const modelTokensPerSecond = useApp((s) => {
+    const latest = [...s.messages].reverse().find(
+      (message) => message.role === 'assistant' && message.usage && message.generationMs
+    )
+    return latest?.usage && latest.generationMs
+      ? latest.usage.completion / (latest.generationMs / 1000)
+      : null
+  })
   const [tab, setTab] = useState<Tab>('general')
   const [draft, setDraft] = useState<AppConfig | null>(config)
 
@@ -833,6 +947,16 @@ export function Settings(): React.ReactElement | null {
                   </div>
                 ))}
               </Section>
+            )}
+
+            {tab === 'benchmark' && (
+              <BenchmarkPanel
+                running={benchmarkRunning}
+                progress={benchmarkProgress}
+                modelTokensPerSecond={modelTokensPerSecond}
+                report={benchmarkReport}
+                onRun={() => void runBenchmark()}
+              />
             )}
 
             {tab === 'about' && info && (

@@ -15,6 +15,54 @@ function broadcast<T>(channel: string, payload: T): void {
 
 let latestUpdate: UpdateInfo | null = null
 
+interface ParsedVersion {
+  core: number[]
+  prerelease: string[]
+}
+
+function parseVersion(version: string): ParsedVersion | null {
+  const match = /^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version)
+  const core = match?.[1]
+  if (!core) return null
+  return {
+    core: core.split('.').map(Number),
+    prerelease: match[2] ? match[2].split('.') : []
+  }
+}
+
+/** True only when candidate is strictly newer according to SemVer precedence. */
+function isVersionNewer(candidate: string, current: string): boolean {
+  const next = parseVersion(candidate)
+  const installed = parseVersion(current)
+  // electron-updater normally supplies SemVer. If a publisher sends an invalid
+  // version, avoid advertising an update based on a string comparison.
+  if (!next || !installed) return false
+
+  const length = Math.max(next.core.length, installed.core.length)
+  for (let index = 0; index < length; index += 1) {
+    const delta = (next.core[index] ?? 0) - (installed.core[index] ?? 0)
+    if (delta !== 0) return delta > 0
+  }
+
+  if (next.prerelease.length === 0 || installed.prerelease.length === 0) {
+    return next.prerelease.length === 0 && installed.prerelease.length > 0
+  }
+
+  const prereleaseLength = Math.max(next.prerelease.length, installed.prerelease.length)
+  for (let index = 0; index < prereleaseLength; index += 1) {
+    const a = next.prerelease[index]
+    const b = installed.prerelease[index]
+    if (a === undefined || b === undefined) return a !== undefined
+    if (a === b) continue
+    const aNumber = /^\d+$/.test(a)
+    const bNumber = /^\d+$/.test(b)
+    if (aNumber && bNumber) return Number(a) > Number(b)
+    if (aNumber !== bNumber) return !aNumber
+    return a > b
+  }
+  return false
+}
+
 export function initUpdater(): void {
   // Configure autoUpdater
   autoUpdater.autoDownload = false
@@ -98,7 +146,7 @@ export function registerUpdaterHandlers(): void {
     try {
       const result = await autoUpdater.checkForUpdates()
       if (result && result.updateInfo) {
-        const isNewer = result.updateInfo.version !== app.getVersion()
+        const isNewer = isVersionNewer(result.updateInfo.version, app.getVersion())
         latestUpdate = {
           available: isNewer,
           version: result.updateInfo.version,

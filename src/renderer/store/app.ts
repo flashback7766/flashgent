@@ -4,6 +4,8 @@ import {
   type AskAnswer,
   type AskRequest,
   type AppConfig,
+  type BenchmarkProgress,
+  type BenchmarkReport,
   type ContentBlock,
   type EffortLevel,
   type Message,
@@ -127,6 +129,10 @@ interface AppState {
   updateInfo: UpdateInfo | null
   updateProgress: UpdateProgress | null
 
+  benchmarkRunning: boolean
+  benchmarkProgress: BenchmarkProgress | null
+  benchmarkReport: BenchmarkReport | null
+
   toast: (kind: Toast['kind'], message: string) => void
   dismissToast: (id: string) => void
   setSettingsOpen: (open: boolean) => void
@@ -135,6 +141,7 @@ interface AppState {
   checkForUpdates: () => Promise<void>
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
+  runBenchmark: () => Promise<void>
 }
 
 /** Resolvers for the two places the loop pauses and waits on the user. */
@@ -186,6 +193,9 @@ export const useApp = create<AppState>((set, get) => ({
   searchQuery: '',
   updateInfo: null,
   updateProgress: null,
+  benchmarkRunning: false,
+  benchmarkProgress: null,
+  benchmarkReport: null,
 
   async init() {
     const config = must(await api().config.get())
@@ -214,6 +224,10 @@ export const useApp = create<AppState>((set, get) => ({
     api().on.updateDownloaded((updateInfo) => {
       set({ updateInfo, updateProgress: null })
       get().toast('success', `Update v${updateInfo.version} downloaded and ready to install.`)
+    })
+    api().benchmark.onProgress((benchmarkProgress) => set({ benchmarkProgress }))
+    api().benchmark.onDone(({ report }) => {
+      set({ benchmarkRunning: false, benchmarkReport: report })
     })
 
     await refreshMcpTools(set)
@@ -707,8 +721,10 @@ export const useApp = create<AppState>((set, get) => ({
       get().toast('info', 'Checking for updates...')
       const info = must(await api().updater.check())
       set({ updateInfo: info })
-      if (!info.available) {
-        get().toast('info', `You are on the latest version (v${info.version ?? '0.1.2'}).`)
+      if (info.error) {
+        get().toast('error', `Update check failed: ${info.error}`)
+      } else if (!info.available) {
+        get().toast('info', `You are on the latest version (v${info.version ?? get().info?.version ?? 'unknown'}).`)
       }
     } catch (err) {
       get().toast('error', `Update check failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -729,6 +745,17 @@ export const useApp = create<AppState>((set, get) => ({
       must(await api().updater.install())
     } catch (err) {
       get().toast('error', `Install failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+
+  async runBenchmark() {
+    if (get().benchmarkRunning) return
+    set({ benchmarkRunning: true, benchmarkProgress: null, benchmarkReport: null })
+    try {
+      must(await api().benchmark.run())
+    } catch (err) {
+      set({ benchmarkRunning: false })
+      get().toast('error', `Benchmark failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 }))
@@ -806,6 +833,7 @@ async function streamAssistantTurn(
       projectInstructions,
       contextTokens: get().contextTokens,
       forceReact: reactModels.has(model),
+      subtaskDepth: ctx.subtaskDepth,
       signal: subSignal,
       events: {
         onBlocks: () => undefined,
@@ -861,12 +889,17 @@ async function streamAssistantTurn(
   // Writes are chained rather than fired concurrently: two overlapping saves
   // would both see `persisted === false` and race to insert the same row.
   let writeQueue: Promise<void> = Promise.resolve()
+  let firstTokenAt: number | null = null
 
-  const persist = (blocks: ContentBlock[], usage?: TokenUsage): Promise<void> => {
+  const persist = (blocks: ContentBlock[], usage?: TokenUsage, generationMs?: number): Promise<void> => {
     const run = writeQueue.then(async () => {
       if (persisted) {
         must(
-          await api().db.updateMessage(assistantId, { blocks, ...(usage ? { usage } : {}) })
+          await api().db.updateMessage(assistantId, {
+            blocks,
+            ...(usage ? { usage } : {}),
+            ...(generationMs !== undefined ? { generationMs } : {})
+          })
         )
         return
       }
@@ -877,7 +910,8 @@ async function streamAssistantTurn(
         blocks,
         model,
         createdAt: Date.now(),
-        ...(usage ? { usage } : {})
+        ...(usage ? { usage } : {}),
+        ...(generationMs !== undefined ? { generationMs } : {})
       }
       must(await api().db.appendMessage(message))
       persisted = true
@@ -925,6 +959,7 @@ async function streamAssistantTurn(
         onRequestStart: (promptTokens) =>
           set({ prefill: { model, promptTokens, startedAt: Date.now() } }),
         onFirstToken: () => {
+          firstTokenAt ??= Date.now()
           const pending = get().prefill
           if (pending) {
             recordPrefill(pending.model, pending.promptTokens, Date.now() - pending.startedAt)
@@ -986,7 +1021,7 @@ async function streamAssistantTurn(
   }
 
   try {
-    await persist(blocks, result.usage)
+    await persist(blocks, result.usage, Date.now() - (firstTokenAt ?? get().turnStartedAt))
   } catch (err) {
     // The turn already happened; failing to save it is worth reporting, not
     // worth throwing out of the store and into an unhandled rejection.

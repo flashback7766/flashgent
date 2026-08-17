@@ -5,6 +5,7 @@ import { CH } from '../shared/ipc.js'
 import { readConfig } from './configStore.js'
 import { closeDatabase, openDatabase } from './db/index.js'
 import { registerAppHandlers, setInitialWorkspace } from './ipc/app.js'
+import { registerBenchmarkHandlers } from './ipc/benchmark.js'
 import { registerDbHandlers } from './ipc/db.js'
 import { registerFsHandlers } from './ipc/fs.js'
 import { abortAllStreams, registerLlmHandlers } from './ipc/llm.js'
@@ -99,6 +100,7 @@ async function bootstrap(): Promise<void> {
   registerLlmHandlers()
   registerMcpHandlers()
   registerUpdaterHandlers()
+  registerBenchmarkHandlers()
   initUpdater()
 
   mainWindow = createMainWindow(join(__dirname, '../preload/index.mjs'))

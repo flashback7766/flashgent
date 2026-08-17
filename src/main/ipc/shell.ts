@@ -1,6 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow } from 'electron'
 import { CH } from '../../shared/ipc.js'
 import type { BackgroundTask, ShellRequest, ShellResult } from '../../shared/types.js'
 import { logger } from '../logger.js'
@@ -48,11 +47,6 @@ function clip(text: string, limit = MAX_OUTPUT_CHARS): { text: string; truncated
   return { text: `${head}\n\n… [output truncated] …\n\n${tail}`, truncated: true }
 }
 
-function broadcast(taskId: string, chunk: string, stream: 'stdout' | 'stderr'): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(CH.evtShellData, taskId, chunk, stream)
-  }
-}
 
 export function registerShellHandlers(): void {
   handle<ShellRequest, ShellResult>(CH.shellRun, async (req) => {
@@ -88,14 +82,12 @@ export function registerShellHandlers(): void {
       if (task.stdout.length > MAX_OUTPUT_CHARS * 2) {
         task.stdout = clip(task.stdout, MAX_OUTPUT_CHARS).text
       }
-      if (req.background) broadcast(id, chunk, 'stdout')
     })
     child.stderr.on('data', (chunk: string) => {
       task.stderr += chunk
       if (task.stderr.length > MAX_OUTPUT_CHARS * 2) {
         task.stderr = clip(task.stderr, MAX_OUTPUT_CHARS).text
       }
-      if (req.background) broadcast(id, chunk, 'stderr')
     })
 
     const settled = new Promise<number | null>((resolveExit) => {

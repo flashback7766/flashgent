@@ -78,6 +78,8 @@ export interface Message {
   createdAt: number
   /** Token accounting reported by the server, when available. */
   usage?: TokenUsage
+  /** Time from the first generated token to the end of the reply. */
+  generationMs?: number
 }
 
 export interface TokenUsage {
@@ -435,3 +437,31 @@ export interface UpdateProgress {
 
 /** Uniform envelope for every IPC call so the renderer never sees a raw throw. */
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
+// --- Benchmark -------------------------------------------------------------
+
+export type BenchmarkTier = 'easy' | 'medium' | 'hard'
+
+export interface ScenarioResult {
+  id: string
+  name: string
+  tier: BenchmarkTier
+  maxPoints: number
+  earnedPoints: number
+  passed: boolean
+  durationMs: number
+  message?: string
+}
+
+export interface BenchmarkReport {
+  totalScore: number
+  maxScore: number
+  scenarios: ScenarioResult[]
+}
+
+export interface BenchmarkProgress {
+  index: number
+  total: number
+  scenario: string
+  score: number
+}
