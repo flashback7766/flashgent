@@ -260,7 +260,7 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
       const raw = await ctx.readFile('README.md')
       if (!raw) return { ok: false, message: 'README.md not created' }
       const hasHeading = /#\s+.+/.test(raw)
-      const hasTable = /\|.+\|.+\|/.test(raw) && /\|[-:]+[-| :]*\|/.test(raw)
+      const hasTable = /\|.+\|.+\|/.test(raw) && /\|\s*[-:]+[-| :]*\|/.test(raw)
       const ok = hasHeading && hasTable
       return { ok, message: ok ? undefined : 'README.md missing heading or markdown table' }
     }
@@ -299,7 +299,10 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
       const raw = await ctx.readFile('src/components/Button.tsx')
       if (!raw) return { ok: false, message: 'src/components/Button.tsx missing' }
       const hasProps = /ButtonProps/.test(raw) && /variant/.test(raw)
-      const hasExport = /export\s+(function|const)\s+Button/.test(raw)
+      const hasExport =
+        /export\s+(default\s+)?(function|const)\s+Button/.test(raw) ||
+        /export\s+default\s+Button\b/.test(raw) ||
+        /export\s*\{\s*Button(\s+as\s+default)?\s*\}/.test(raw)
       const ok = hasProps && hasExport
       return { ok, message: ok ? undefined : 'Button.tsx does not export Button component with ButtonProps' }
     }
@@ -516,7 +519,10 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
     assert: async (ctx) => {
       const raw = await ctx.readFile('factorial.ts')
       if (!raw) return { ok: false, message: 'factorial.ts missing' }
-      const hasBaseCase = /if\s*\(\s*n\s*<=\s*1\s*\)\s*return\s*1|if\s*\(\s*n\s*===\s*0|if\s*\(\s*n\s*<=\s*0/.test(raw)
+      const hasBaseCase =
+        /if\s*\(\s*n\s*(<=|<|===|==)\s*[012]\s*\)\s*\{?\s*return\s*1/.test(raw) ||
+        /if\s*\(\s*n\s*(<=|<|===|==)\s*[012]\s*\)/.test(raw) ||
+        /return\s+n\s*(<=|<|===|==)\s*[012]\s*\?\s*1/.test(raw)
       const ok = hasBaseCase
       return { ok, message: ok ? undefined : 'factorial.ts lacks base case guard' }
     }

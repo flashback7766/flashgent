@@ -31,6 +31,21 @@ export type BenchmarkEvaluator = (
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }>
 }>
 
+export function parseToolArguments(raw: string): { args: Record<string, unknown>; valid: boolean } {
+  try {
+    return { args: JSON.parse(raw || '{}') as Record<string, unknown>, valid: true }
+  } catch {
+    try {
+      const sanitized = raw
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":')
+      return { args: JSON.parse(sanitized) as Record<string, unknown>, valid: true }
+    } catch {
+      return { args: {}, valid: false }
+    }
+  }
+}
+
 /**
  * Creates a real evaluator that sends each scenario's prompt to an OpenAI-compatible
  * LLM endpoint (such as LM Studio on localhost), executes any tool calls the model emits
@@ -236,15 +251,9 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
 
       for (const call of toolCalls) {
         const fnName = call.function?.name ?? ''
-        let fnArgs: Record<string, unknown> = {}
-        try {
-          fnArgs = JSON.parse(call.function?.arguments || '{}') as Record<string, unknown>
-        } catch {
-          fnArgs = {}
-        }
-
+        const { args: fnArgs, valid: jsonValid } = parseToolArguments(call.function?.arguments || '{}')
         let toolResult = ''
-        let ok = true
+        let ok = jsonValid
 
         try {
           if (fnName === 'write_file' || fnName === 'write') {
@@ -406,7 +415,8 @@ export async function executeScenario(
       earnedPoints: assertion.ok ? scenario.points : 0,
       passed: assertion.ok,
       durationMs,
-      message: assertion.message
+      message: assertion.message,
+      ...(context.toolCalls ? { toolCalls: context.toolCalls } : {})
     }
   } catch (err) {
     const durationMs = Math.round(performance.now() - start)
@@ -567,11 +577,42 @@ export async function runBenchmark(
   const basePoints = easyScore + medScore + hardScore // max 70
 
   // Calculate Quality Modifiers (30 pts max)
+  const allToolCalls = scenarioResults.flatMap(
+    (s) => (s as { toolCalls?: Array<{ ok?: boolean }> }).toolCalls ?? []
+  )
   const passRate = scenarioResults.filter((s) => s.passed).length / scenarioResults.length
-  const toolSyntaxPrecision = Math.round(passRate * 10 * 10) / 10 // 0-10
-  const thinkingEfficiency = Math.round(passRate * 10 * 10) / 10 // 0-10
-  const executionSpeedAndEconomy = Math.round(passRate * 10 * 10) / 10 // 0-10
-  const totalModifier = Math.round((toolSyntaxPrecision + thinkingEfficiency + executionSpeedAndEconomy) * 10) / 10
+
+  // 1. Tool Syntax Precision: ratio of valid tool calls (or passRate if none called)
+  let toolSyntaxPrecision = 10
+  if (allToolCalls.length > 0) {
+    const validCalls = allToolCalls.filter((c) => c.ok !== false).length
+    toolSyntaxPrecision = Math.round((validCalls / allToolCalls.length) * 10 * 10) / 10
+  } else {
+    toolSyntaxPrecision = Math.round(passRate * 10 * 10) / 10
+  }
+
+  // 2. Thinking & Logic Efficiency: weighted accuracy across reasoning tiers
+  const hardPassed = hardScenarios.filter((s) => s.passed).length
+  const medPassed = medScenarios.filter((s) => s.passed).length
+  const easyPassed = easyScenarios.filter((s) => s.passed).length
+  const weightedLogicScore = (easyPassed * 1 + medPassed * 3 + hardPassed * 5) / 70
+  const thinkingEfficiency = Math.round(weightedLogicScore * 10 * 10) / 10
+
+  // 3. Execution Speed & Economy: benchmark scenario durations against reasonable budgets
+  const speedScores = scenarioResults.map((s) => {
+    if (!s.passed) return 0
+    const budget = s.tier === 'easy' ? 8_000 : s.tier === 'medium' ? 20_000 : 45_000
+    if (s.durationMs <= budget) return 1
+    return Math.max(0.2, 1 - (s.durationMs - budget) / (budget * 2))
+  })
+  const avgSpeedRatio =
+    speedScores.reduce((sum, v) => sum + v, 0) / Math.max(1, scenarioResults.length)
+  const executionSpeedAndEconomy = Math.round(avgSpeedRatio * 10 * 10) / 10
+
+  const totalModifier = Math.min(
+    30,
+    Math.round((toolSyntaxPrecision + thinkingEfficiency + executionSpeedAndEconomy) * 10) / 10
+  )
 
   const totalScore = Math.min(100, Math.round((basePoints + totalModifier) * 10) / 10)
   const maxScore = 100
