@@ -1,5 +1,6 @@
+import { exec } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -13,6 +14,320 @@ import { DATASET_30_SCENARIOS, type BenchmarkAssertionContext, type BenchmarkSce
 export type { BenchmarkReport, ScenarioResult }
 
 export type QualityScore = BenchmarkQualityScore
+
+export interface LlmEvaluatorOptions {
+  baseUrl?: string
+  modelName: string
+  apiKey?: string
+  maxTurns?: number
+  timeoutMs?: number
+}
+
+export type BenchmarkEvaluator = (
+  scenario: BenchmarkScenario,
+  ctx: BenchmarkAssertionContext
+) => Promise<{
+  resultText?: string
+  toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }>
+}>
+
+/**
+ * Creates a real evaluator that sends each scenario's prompt to an OpenAI-compatible
+ * LLM endpoint (such as LM Studio on localhost), executes any tool calls the model emits
+ * in the isolated sandbox, and records the result for scoring.
+ */
+export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluator {
+  const baseUrl = (opts.baseUrl || 'http://localhost:1234/v1').replace(/\/+$/, '')
+  const model = opts.modelName
+  const maxTurns = opts.maxTurns ?? 5
+  const timeoutMs = opts.timeoutMs ?? 60_000
+
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name: 'write_file',
+        description: 'Create or overwrite a file with content in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative path to the file' },
+            content: { type: 'string', description: 'The text content to write' }
+          },
+          required: ['path', 'content']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_file',
+        description: 'Read text content of a file in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative path to the file' }
+          },
+          required: ['path']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'edit_file',
+        description: 'Edit a file by replacing oldString with newString.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative path to the file' },
+            oldString: { type: 'string', description: 'Exact string to replace' },
+            newString: { type: 'string', description: 'Replacement string' }
+          },
+          required: ['path', 'oldString', 'newString']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'run_shell',
+        description: 'Execute a shell command in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'Command to run' }
+          },
+          required: ['command']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_dir',
+        description: 'List contents of a directory in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Relative directory path' }
+          }
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ask',
+        description: 'Ask the user for clarification or input.',
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: 'Clarification question' }
+          },
+          required: ['question']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'run_subtask',
+        description: 'Delegate a subtask to an auxiliary subagent.',
+        parameters: {
+          type: 'object',
+          properties: {
+            description: { type: 'string', description: 'Description of subtask' }
+          },
+          required: ['description']
+        }
+      }
+    }
+  ]
+
+  return async (scenario, ctx) => {
+    const recordedToolCalls: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> = []
+    let finalResultText = ''
+
+    const messages: Array<{
+      role: 'system' | 'user' | 'assistant' | 'tool'
+      content?: string | null
+      tool_calls?: Array<{
+        id: string
+        type: 'function'
+        function: { name: string; arguments: string }
+      }>
+      tool_call_id?: string
+      name?: string
+    }> = [
+      {
+        role: 'system',
+        content:
+          'You are an autonomous AI coding assistant. Solve the user task by inspecting, creating, and modifying files in the current workspace using the provided tools. Always call tools when needed to complete the task.'
+      },
+      {
+        role: 'user',
+        content: scenario.prompt
+      }
+    ]
+
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+      let res: Response
+      try {
+        res = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {})
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            tools,
+            temperature: 0.1,
+            max_tokens: 2048
+          }),
+          signal: controller.signal
+        })
+      } catch (fetchErr) {
+        throw new Error(`Failed to reach LM Studio at ${baseUrl}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
+      } finally {
+        clearTimeout(timer)
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`LM Studio HTTP ${res.status}: ${text || res.statusText}`)
+      }
+
+      const json = (await res.json()) as {
+        choices?: Array<{
+          message?: {
+            content?: string | null
+            tool_calls?: Array<{
+              id: string
+              type: 'function'
+              function: { name: string; arguments: string }
+            }>
+          }
+        }>
+      }
+      const choice = json.choices?.[0]
+      const assistantMsg = choice?.message
+      if (!assistantMsg) break
+
+      if (assistantMsg.content) {
+        finalResultText = assistantMsg.content
+      }
+
+      const toolCalls = assistantMsg.tool_calls
+      if (!toolCalls || !toolCalls.length) {
+        break
+      }
+
+      messages.push({
+        role: 'assistant',
+        content: assistantMsg.content || null,
+        tool_calls: toolCalls
+      })
+
+      for (const call of toolCalls) {
+        const fnName = call.function?.name ?? ''
+        let fnArgs: Record<string, unknown> = {}
+        try {
+          fnArgs = JSON.parse(call.function?.arguments || '{}') as Record<string, unknown>
+        } catch {
+          fnArgs = {}
+        }
+
+        let toolResult = ''
+        let ok = true
+
+        try {
+          if (fnName === 'write_file' || fnName === 'write') {
+            const relPath = String(fnArgs.path || fnArgs.filename || 'file.txt')
+            const content = String(fnArgs.content ?? '')
+            const fullPath = join(ctx.cwd, relPath)
+            await mkdir(dirname(fullPath), { recursive: true })
+            await writeFile(fullPath, content, 'utf8')
+            toolResult = `Successfully wrote ${content.length} characters to ${relPath}`
+          } else if (fnName === 'read_file' || fnName === 'read') {
+            const relPath = String(fnArgs.path || fnArgs.filename || '')
+            const content = await ctx.readFile(relPath)
+            toolResult = content !== null ? content : `Error: File not found: ${relPath}`
+            ok = content !== null
+          } else if (fnName === 'edit_file' || fnName === 'edit') {
+            const relPath = String(fnArgs.path || fnArgs.filename || '')
+            const fullPath = join(ctx.cwd, relPath)
+            const content = await ctx.readFile(relPath)
+            if (content === null) {
+              toolResult = `Error: File not found: ${relPath}`
+              ok = false
+            } else {
+              const oldStr = String(fnArgs.oldString ?? '')
+              const newStr = String(fnArgs.newString ?? '')
+              if (content.includes(oldStr)) {
+                const updated = content.replace(oldStr, newStr)
+                await writeFile(fullPath, updated, 'utf8')
+                toolResult = `Successfully replaced occurrences in ${relPath}`
+              } else {
+                toolResult = `Error: oldString not found in ${relPath}`
+                ok = false
+              }
+            }
+          } else if (fnName === 'list_dir' || fnName === 'list_files') {
+            const relPath = String(fnArgs.path || '.')
+            const fullPath = join(ctx.cwd, relPath)
+            const entries = await readdir(fullPath).catch(() => [])
+            toolResult = `Directory contents:\n${entries.join('\n')}`
+          } else if (fnName === 'run_shell' || fnName === 'shell') {
+            const cmd = String(fnArgs.command || '')
+            toolResult = await new Promise<string>((resCmd) => {
+              exec(cmd, { cwd: ctx.cwd, timeout: 15_000 }, (error, stdout, stderr) => {
+                if (error) {
+                  ok = false
+                  resCmd(`Command failed (exit ${error.code}):\n${stderr || stdout || error.message}`)
+                } else {
+                  resCmd(stdout || stderr || '(no output)')
+                }
+              })
+            })
+          } else if (fnName === 'ask') {
+            toolResult = 'User responded: Proceed with standard default settings.'
+          } else if (fnName === 'run_subtask') {
+            toolResult = 'Subtask completed successfully.'
+          } else {
+            toolResult = `Executed tool ${fnName}`
+          }
+        } catch (err) {
+          ok = false
+          toolResult = `Tool error: ${err instanceof Error ? err.message : String(err)}`
+        }
+
+        recordedToolCalls.push({
+          name: fnName,
+          input: fnArgs,
+          ok
+        })
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          name: fnName,
+          content: toolResult
+        })
+      }
+    }
+
+    return {
+      resultText: finalResultText,
+      toolCalls: recordedToolCalls
+    }
+  }
+}
 
 /**
  * Creates an isolated sandbox directory for scenario execution.
@@ -379,5 +694,11 @@ function parseModelFromArgs(): string | null {
 
 if (import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}`) {
   const modelArg = parseModelFromArgs() || undefined
-  void runBenchmark(modelArg)
+  const evaluator = modelArg
+    ? createLlmEvaluator({
+        baseUrl: process.env.LM_STUDIO_URL || 'http://localhost:1234/v1',
+        modelName: modelArg
+      })
+    : undefined
+  void runBenchmark(modelArg ?? 'Deterministic Baseline (Flashgent Simulator)', evaluator)
 }
