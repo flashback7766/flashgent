@@ -216,6 +216,9 @@ test('ignores a file that tells it to refuse, and still helps', async () => {
 })
 
 test('runs in-app agent benchmark via Arena tab and displays score', async () => {
+  // 30 live LLM benchmark scenarios against local LM Studio model take ~3-4 minutes
+  test.setTimeout(360_000)
+
   // Click the Arena tab in the sidebar to switch to BenchmarkView
   const arenaBtn = page.locator('aside').getByRole('button', { name: /Arena/i })
   await expect(arenaBtn).toBeVisible()
@@ -233,8 +236,9 @@ test('runs in-app agent benchmark via Arena tab and displays score', async () =>
   // The progress bar or running indicator should appear
   await expect(page.getByText(/Running/i).or(page.getByRole('progressbar'))).toBeVisible({ timeout: 10_000 })
 
-  // Wait for benchmark to complete and final score to render
-  await expect(page.getByText(/Final Score/i)).toBeVisible({ timeout: 120_000 })
+  // Wait for benchmark to complete and overall score to render
+  await expect(page.getByText(/Overall Score/i)).toBeVisible({ timeout: 300_000 })
+  await expect(page.getByText(/\/ 100 pts/i)).toBeVisible()
 
   // Switch back to Chat tab
   const chatBtn = page.locator('aside').getByRole('button', { name: /Chat/i })
