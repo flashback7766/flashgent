@@ -1055,12 +1055,28 @@ async function maybeAutoCompact(get: Getter): Promise<void> {
   const state = get()
   const threshold = state.config?.agent.autoCompactAt ?? 0
   const limit = state.contextTokens
-  const used = state.usage?.total ?? 0
 
-  if (!threshold || !limit || used < limit * threshold) return
+  if (!threshold || !limit || state.messages.length < MIN_MESSAGES_TO_COMPACT) return
 
-  state.toast('info', 'Context nearly full — compacting the conversation.')
-  await state.compact()
+  // Realistic token count: maximum of reported usage and estimated conversation tokens
+  const estimated = state.messages.reduce((sum, m) => {
+    return sum + m.blocks.reduce((bSum, b) => {
+      if (b.type === 'text') return bSum + estimateTokens(b.text)
+      if (b.type === 'tool_use') {
+        const inp = JSON.stringify(b.input)
+        const res = b.result?.content ?? ''
+        return bSum + estimateTokens(inp) + estimateTokens(res)
+      }
+      return bSum
+    }, 0)
+  }, 1000)
+
+  const used = Math.max(state.usage?.total ?? 0, estimated)
+
+  if (used >= limit * threshold) {
+    state.toast('info', 'Context nearly full — compacting the conversation.')
+    await state.compact()
+  }
 }
 
 // --- helpers ---------------------------------------------------------------

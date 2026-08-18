@@ -627,7 +627,7 @@ function systemPromptFor(
  * The block's own `result.content` stays raw so the UI can show the user
  * exactly what was on disk.
  */
-function modelFacingResult(block: ToolUseBlock, nonce: string): string {
+function modelFacingResult(block: ToolUseBlock, nonce: string, maxChars?: number): string {
   const result = block.result
   if (!result) return '(no result)'
 
@@ -635,8 +635,16 @@ function modelFacingResult(block: ToolUseBlock, nonce: string): string {
   // is fenced — including tool errors, which can quote file contents back.
   if (block.status === 'denied') return result.content
 
+  let content = result.content
+  if (maxChars && content.length > maxChars) {
+    const headLen = Math.floor(maxChars * 0.7)
+    const tailLen = Math.floor(maxChars * 0.3)
+    const omitted = content.length - headLen - tailLen
+    content = `${content.slice(0, headLen)}\n\n[... ${omitted} characters of older tool output omitted for context efficiency ...]\n\n${content.slice(-tailLen)}`
+  }
+
   const source = `${block.name}(${summariseInput(block.input)})`
-  const wrapped = wrapUntrusted({ nonce, source, content: result.content })
+  const wrapped = wrapUntrusted({ nonce, source, content })
 
   // Remember the findings so the UI can badge the block.
   if (wrapped.findings.length) result.flagged = wrapped.findings
@@ -766,7 +774,13 @@ export function toWireMessages(history: Message[], react: boolean, nonce: string
     effectiveHistory = history.slice(lastCompactionIdx)
   }
 
-  for (const message of effectiveHistory) {
+  const recentThreshold = Math.max(0, effectiveHistory.length - 4)
+  for (let idx = 0; idx < effectiveHistory.length; idx++) {
+    const message = effectiveHistory[idx]
+    if (!message) continue
+    const isOld = idx < recentThreshold
+    const maxChars = isOld ? 1200 : undefined
+
     if (message.role === 'user') {
       out.push({ role: 'user', content: plainText(message.blocks) })
       continue
@@ -802,7 +816,7 @@ export function toWireMessages(history: Message[], react: boolean, nonce: string
         role: 'tool',
         tool_call_id: block.id,
         name: block.name,
-        content: modelFacingResult(block, nonce)
+        content: modelFacingResult(block, nonce, maxChars)
       })
     }
   }

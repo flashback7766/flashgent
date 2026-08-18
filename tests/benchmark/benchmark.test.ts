@@ -32,7 +32,7 @@ describe('Flashgent Benchmark Suite (30 Scenarios, 100-Point System)', () => {
 
   it('generates full 100-point benchmark report with JSON file output and quality modifiers', async () => {
     const report = await runBenchmark('Vitest Test Runner (Flashgent Agent Suite)')
-    expect(report.totalPoints).toBe(100)
+    expect(report.totalScore).toBe(100)
     expect(report.percentage).toBe(100)
     expect(report.summary.easy.passed).toBe(15)
     expect(report.summary.medium.passed).toBe(10)

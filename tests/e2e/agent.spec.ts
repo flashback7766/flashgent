@@ -214,3 +214,28 @@ test('ignores a file that tells it to refuse, and still helps', async () => {
   // And the tool block is badged so the user can see what was caught.
   await expect(page.getByText('injection blocked').first()).toBeVisible()
 })
+
+test('runs in-app agent benchmark from settings and displays score', async () => {
+  // Open Settings modal
+  await page.locator('aside').getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  await expect(dialog).toBeVisible()
+
+  // Switch to Benchmark tab
+  await dialog.getByRole('button', { name: 'Benchmark' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Agent benchmark' })).toBeVisible()
+
+  // Click Run Benchmark button
+  const runBtn = dialog.getByRole('button', { name: 'Run Benchmark' })
+  await expect(runBtn).toBeVisible()
+  await runBtn.click()
+
+  // Verify that the benchmark completes and renders the final score
+  await expect(dialog.getByText(/Benchmark score/i)).toBeVisible({ timeout: 60_000 })
+  await expect(dialog.getByText('100/100')).toBeVisible()
+
+  // Close Settings dialog
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+})
+

@@ -358,29 +358,29 @@ function BenchmarkPanel({
         <p className="text-[12.5px] leading-relaxed text-muted">
           Run all 30 isolated scenarios to check Flashgent&apos;s tool workflow baseline.
         </p>
-          <div className="mt-3 flex items-center gap-3">
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value || undefined)}
-              className="rounded border border-line bg-surface px-2 py-1 text-[12px] text-ink"
-            >
-              <option value="">(Default)</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
+        <div className="mt-3 flex items-center gap-3">
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value || undefined)}
+            className="rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[12px] text-ink outline-none focus:border-brand"
+          >
+            <option value="">(Default model)</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
+              </option>
+            ))}
+          </select>
 
-        <button
-          type="button"
-          disabled={running}
+          <button
+            type="button"
+            disabled={running}
             onClick={() => onRun(selectedModel)}
-          className="mt-4 rounded-md bg-brand px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {running ? 'Running Benchmark…' : 'Run Benchmark'}
-        </button>
-          </div>
+            className="rounded-md bg-brand px-3.5 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running ? 'Running Benchmark…' : 'Run Benchmark'}
+          </button>
+        </div>
         {progress && (
           <div className="mt-4 rounded-lg border border-line bg-canvas p-3">
             <div className="flex justify-between gap-3 text-[11.5px] text-muted">

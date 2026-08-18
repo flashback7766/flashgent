@@ -453,9 +453,31 @@ export interface ScenarioResult {
   message?: string
 }
 
+export interface BenchmarkQualityScore {
+  toolSyntaxPrecision: number
+  thinkingEfficiency: number
+  executionSpeedAndEconomy: number
+  totalModifier: number
+}
+
+export interface BenchmarkSummary {
+  easy: { passed: number; total: number; score: number; max: number }
+  medium: { passed: number; total: number; score: number; max: number }
+  hard: { passed: number; total: number; score: number; max: number }
+}
+
+/**
+ * Canonical benchmark report shape used everywhere — main, renderer, tests.
+ * Field names match what runner.ts produces (totalScore / maxScore).
+ */
 export interface BenchmarkReport {
+  timestamp: string
+  modelName: string
   totalScore: number
   maxScore: number
+  percentage: number
+  summary: BenchmarkSummary
+  qualityModifiers: BenchmarkQualityScore
   scenarios: ScenarioResult[]
 }
 

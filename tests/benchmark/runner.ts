@@ -2,40 +2,17 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type {
+  BenchmarkQualityScore,
+  BenchmarkReport,
+  ScenarioResult
+} from '../../src/shared/types.js'
 import { DATASET_30_SCENARIOS, type BenchmarkAssertionContext, type BenchmarkScenario } from './datasets.js'
 
-export interface ScenarioResult {
-  id: string
-  name: string
-  tier: 'easy' | 'medium' | 'hard'
-  maxPoints: number
-  earnedPoints: number
-  passed: boolean
-  durationMs: number
-  message?: string
-}
+// Re-export for backward compat (tests import from here)
+export type { BenchmarkReport, ScenarioResult }
 
-export interface QualityScore {
-  toolSyntaxPrecision: number // 0-10
-  thinkingEfficiency: number // 0-10
-  executionSpeedAndEconomy: number // 0-10
-  totalModifier: number // 0-30
-}
-
-export interface BenchmarkReport {
-  timestamp: string
-  modelName: string
-  totalPoints: number
-  maxPoints: number
-  percentage: number
-  summary: {
-    easy: { passed: number; total: number; score: number; max: number }
-    medium: { passed: number; total: number; score: number; max: number }
-    hard: { passed: number; total: number; score: number; max: number }
-  }
-  qualityModifiers: QualityScore
-  scenarios: ScenarioResult[]
-}
+export type QualityScore = BenchmarkQualityScore
 
 /**
  * Creates an isolated sandbox directory for scenario execution.
@@ -281,15 +258,15 @@ export async function runBenchmark(
   const executionSpeedAndEconomy = Math.round(passRate * 10 * 10) / 10 // 0-10
   const totalModifier = Math.round((toolSyntaxPrecision + thinkingEfficiency + executionSpeedAndEconomy) * 10) / 10
 
-  const totalPoints = Math.min(100, Math.round((basePoints + totalModifier) * 10) / 10)
-  const maxPoints = 100
-  const percentage = Math.round((totalPoints / maxPoints) * 1000) / 10
+  const totalScore = Math.min(100, Math.round((basePoints + totalModifier) * 10) / 10)
+  const maxScore = 100
+  const percentage = Math.round((totalScore / maxScore) * 1000) / 10
 
   const report: BenchmarkReport = {
     timestamp: new Date().toISOString(),
     modelName,
-    totalPoints,
-    maxPoints,
+    totalScore,
+    maxScore,
     percentage,
     summary: {
       easy: {
@@ -329,13 +306,18 @@ export async function runBenchmark(
   return report
 }
 
-function saveReport(report: BenchmarkReport): string {
-  const reportsDir = join(process.cwd(), 'benchmarks', 'reports')
-  mkdirSync(reportsDir, { recursive: true })
-  const filename = `report-${report.timestamp.replace(/[:.]/g, '-')}.json`
-  const filepath = join(reportsDir, filename)
-  writeFileSync(filepath, JSON.stringify(report, null, 2), 'utf8')
-  return filepath
+function saveReport(report: BenchmarkReport): string | null {
+  try {
+    const baseDir = process.env.FLASHGENT_HOME || process.cwd()
+    const reportsDir = join(baseDir, 'benchmarks', 'reports')
+    mkdirSync(reportsDir, { recursive: true })
+    const filename = `report-${report.timestamp.replace(/[:.]/g, '-')}.json`
+    const filepath = join(reportsDir, filename)
+    writeFileSync(filepath, JSON.stringify(report, null, 2), 'utf8')
+    return filepath
+  } catch {
+    return null
+  }
 }
 
 function printCliTable(report: BenchmarkReport): void {
@@ -372,7 +354,7 @@ function printCliTable(report: BenchmarkReport): void {
   console.log(`║   • Thinking Budget Efficiency:   +${String(report.qualityModifiers.thinkingEfficiency).padStart(4, ' ')} / 10 pts${' '.repeat(30)}║`)
   console.log(`║   • Execution Speed & Economy:    +${String(report.qualityModifiers.executionSpeedAndEconomy).padStart(4, ' ')} / 10 pts${' '.repeat(30)}║`)
   console.log(`╠${bar}╣`)
-  console.log(`║ FINAL SCORE:  ${String(report.totalPoints).padStart(5, ' ')} / ${report.maxPoints} pts (${report.percentage}%)                                  ║`)
+  console.log(`║ FINAL SCORE:  ${String(report.totalScore).padStart(5, ' ')} / ${report.maxScore} pts (${report.percentage}%)                                  ║`)
   console.log(`╚${bar}╝\n`)
 }
 
