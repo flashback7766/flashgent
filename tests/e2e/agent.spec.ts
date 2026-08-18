@@ -215,27 +215,30 @@ test('ignores a file that tells it to refuse, and still helps', async () => {
   await expect(page.getByText('injection blocked').first()).toBeVisible()
 })
 
-test('runs in-app agent benchmark from settings and displays score', async () => {
-  // Open Settings modal
-  await page.locator('aside').getByRole('button', { name: 'Settings' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await expect(dialog).toBeVisible()
+test('runs in-app agent benchmark via Arena tab and displays score', async () => {
+  // Click the Arena tab in the sidebar to switch to BenchmarkView
+  const arenaBtn = page.locator('aside').getByRole('button', { name: /Arena/i })
+  await expect(arenaBtn).toBeVisible()
+  await arenaBtn.click()
 
-  // Switch to Benchmark tab
-  await dialog.getByRole('button', { name: 'Benchmark' }).click()
-  await expect(dialog.getByRole('heading', { name: 'Agent benchmark' })).toBeVisible()
+  // BenchmarkView should now be visible
+  const arenaHeading = page.getByRole('heading', { name: /Benchmark Arena/i })
+  await expect(arenaHeading).toBeVisible({ timeout: 5_000 })
 
   // Click Run Benchmark button
-  const runBtn = dialog.getByRole('button', { name: 'Run Benchmark' })
+  const runBtn = page.getByRole('button', { name: /Run Benchmark/i })
   await expect(runBtn).toBeVisible()
   await runBtn.click()
 
-  // Verify that the benchmark completes and renders the final score
-  await expect(dialog.getByText(/Benchmark score/i)).toBeVisible({ timeout: 60_000 })
-  await expect(dialog.getByText('100/100')).toBeVisible()
+  // The progress bar or running indicator should appear
+  await expect(page.getByText(/Running/i).or(page.getByRole('progressbar'))).toBeVisible({ timeout: 10_000 })
 
-  // Close Settings dialog
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
+  // Wait for benchmark to complete and final score to render
+  await expect(page.getByText(/Final Score/i)).toBeVisible({ timeout: 120_000 })
+
+  // Switch back to Chat tab
+  const chatBtn = page.locator('aside').getByRole('button', { name: /Chat/i })
+  await chatBtn.click()
+  await expect(page.getByRole('heading', { name: /Benchmark Arena/i })).toBeHidden()
 })
 

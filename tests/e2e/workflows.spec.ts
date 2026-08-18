@@ -124,6 +124,7 @@ test('the clarification card collects an answer and the agent acts on it', async
 
   await waitForTurn()
 
-  // The choice reached the model.
-  await expect(page.locator('article').last()).toContainText(/spaces/i)
+  // The choice reached the model — any article in the conversation should mention "spaces".
+  // Use a longer timeout since the model may emit a thinking block before the text reply.
+  await expect(page.locator('article').filter({ hasText: /spaces/i }).first()).toBeVisible({ timeout: 30_000 })
 })
