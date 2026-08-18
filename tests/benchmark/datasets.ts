@@ -299,10 +299,12 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
       const raw = await ctx.readFile('src/components/Button.tsx')
       if (!raw) return { ok: false, message: 'src/components/Button.tsx missing' }
       const hasProps = /ButtonProps/.test(raw) && /variant/.test(raw)
+      // Accept: export default Button, export { Button }, export { Button, ButtonProps },
+      // export const Button =, export function Button, export default function Button
       const hasExport =
-        /export\s+(default\s+)?(function|const)\s+Button/.test(raw) ||
+        /export\s+(default\s+)?(function|const|class)\s+Button/.test(raw) ||
         /export\s+default\s+Button\b/.test(raw) ||
-        /export\s*\{\s*Button(\s+as\s+default)?\s*\}/.test(raw)
+        /export\s*\{[^}]*\bButton\b[^}]*\}/.test(raw)
       const ok = hasProps && hasExport
       return { ok, message: ok ? undefined : 'Button.tsx does not export Button component with ButtonProps' }
     }
@@ -351,7 +353,7 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
     tier: 'medium',
     points: 3,
     description: 'Rename calculateSum to computeTotal across 3 files',
-    prompt: 'Rename the function calculateSum to computeTotal across all 3 files: math.ts, service.ts, and index.ts. Ensure calculateSum is completely replaced with computeTotal in all three files.',
+    prompt: 'Rename calculateSum to computeTotal in all 3 files: math.ts, service.ts, and index.ts. You must edit each file individually — do not skip any. After editing, verify each file no longer contains calculateSum.',
     initialFiles: {
       'math.ts': 'export function calculateSum(a: number, b: number) { return a + b; }\n',
       'service.ts': 'import { calculateSum } from "./math.js";\nexport function doWork() { return calculateSum(1, 2); }\n',
@@ -415,7 +417,7 @@ export const DATASET_30_SCENARIOS: BenchmarkScenario[] = [
     assert: async (ctx) => {
       const raw = await ctx.readFile('schema.ts')
       if (!raw) return { ok: false, message: 'schema.ts missing' }
-      const ok = /userSchema/.test(raw) && /z\.object/.test(raw) && /z\.string\(\)/.test(raw) && /email\(\)/.test(raw)
+      const ok = /userSchema/.test(raw) && /z\.object/.test(raw) && /z\.string\(\)/.test(raw) && /\.email\(/.test(raw)
       return { ok, message: ok ? undefined : 'schema.ts lacks valid zod userSchema definition' }
     }
   },
