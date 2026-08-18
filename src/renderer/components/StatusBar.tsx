@@ -194,7 +194,7 @@ function useBreakdown(): ContextBreakdown | null {
     attachments,
     projectInstructions,
     limit: contextTokens,
-    measured: usage?.total ?? null
+    measured: usage?.prompt ?? null
   })
 }
 

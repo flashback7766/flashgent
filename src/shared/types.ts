@@ -185,6 +185,8 @@ export interface ModelPreset {
   temperature: number
   topP?: number
   topK?: number
+  minP?: number
+  repeatPenalty?: number
   frequencyPenalty?: number
   maxTokens: number
   stop?: string[]

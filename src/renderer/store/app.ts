@@ -562,7 +562,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ streaming: true, currentAction: 'Compacting the conversation' })
     try {
       const beforeTokens =
-        get().usage?.total ?? messages.reduce((sum, m) => sum + estimateTurnTokens(m.blocks), 0)
+        get().usage?.prompt ?? messages.reduce((sum, m) => sum + estimateTurnTokens(m.blocks), 0)
 
       const transcript = messages
         .map((m) => `${m.role}: ${plainText(m.blocks).slice(0, 4000)}`)
@@ -1058,7 +1058,9 @@ async function maybeAutoCompact(get: Getter): Promise<void> {
 
   if (!threshold || !limit || state.messages.length < MIN_MESSAGES_TO_COMPACT) return
 
-  // Realistic token count: maximum of reported usage and estimated conversation tokens
+  // Use the server-reported prompt tokens if available — that is the actual
+  // context the model loaded this turn, not an estimate.  Fall back to an
+  // estimate that counts text + tool I/O across all messages.
   const estimated = state.messages.reduce((sum, m) => {
     return sum + m.blocks.reduce((bSum, b) => {
       if (b.type === 'text') return bSum + estimateTokens(b.text)
@@ -1071,7 +1073,9 @@ async function maybeAutoCompact(get: Getter): Promise<void> {
     }, 0)
   }, 1000)
 
-  const used = Math.max(state.usage?.total ?? 0, estimated)
+  // Prefer prompt tokens: they reflect the actual context window usage as
+  // reported by the model server (not cumulative completions).
+  const used = state.usage?.prompt ?? estimated
 
   if (used >= limit * threshold) {
     state.toast('info', 'Context nearly full — compacting the conversation.')

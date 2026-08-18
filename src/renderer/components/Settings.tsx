@@ -739,23 +739,9 @@ export function Settings(): React.ReactElement | null {
                 </Section>
 
                 <Section title="Sampling">
-                  <Field
-                    label="Preset"
-                    hint="Effort adjusts these further; the preset is the baseline."
-                  >
-                    <select
-                      value={draft.activePresetId}
-                      onChange={(e) => patch({ activePresetId: e.target.value })}
-                      className={inputClass}
-                    >
-                      {draft.presets.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
+                  <p className="mb-3 text-[11.5px] leading-relaxed text-faint">
+                    These values are the baseline — effort adjusts temperature further for each turn.
+                  </p>
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Temperature">
                       <input
@@ -787,6 +773,81 @@ export function Settings(): React.ReactElement | null {
                             presets: draft.presets.map((p) =>
                               p.id === activePreset.id
                                 ? { ...p, maxTokens: Number(e.target.value) }
+                                : p
+                            )
+                          })
+                        }
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Top-P" hint="Nucleus sampling cutoff (0–1).">
+                      <input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={activePreset.topP ?? ''}
+                        onChange={(e) =>
+                          patch({
+                            presets: draft.presets.map((p) =>
+                              p.id === activePreset.id
+                                ? { ...p, topP: e.target.value ? Number(e.target.value) : undefined }
+                                : p
+                            )
+                          })
+                        }
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Top-K" hint="Limit sampling to the K most likely tokens. 0 = disabled.">
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={activePreset.topK ?? ''}
+                        onChange={(e) =>
+                          patch({
+                            presets: draft.presets.map((p) =>
+                              p.id === activePreset.id
+                                ? { ...p, topK: e.target.value ? Number(e.target.value) : undefined }
+                                : p
+                            )
+                          })
+                        }
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Min-P" hint="Minimum probability relative to top token (0–1). 0 = disabled.">
+                      <input
+                        type="number"
+                        step="0.005"
+                        min="0"
+                        max="1"
+                        value={activePreset.minP ?? ''}
+                        onChange={(e) =>
+                          patch({
+                            presets: draft.presets.map((p) =>
+                              p.id === activePreset.id
+                                ? { ...p, minP: e.target.value ? Number(e.target.value) : undefined }
+                                : p
+                            )
+                          })
+                        }
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Repeat penalty" hint="Penalises repeated tokens (1 = off, >1 = penalise).">
+                      <input
+                        type="number"
+                        step="0.05"
+                        min="1"
+                        max="2"
+                        value={activePreset.repeatPenalty ?? ''}
+                        onChange={(e) =>
+                          patch({
+                            presets: draft.presets.map((p) =>
+                              p.id === activePreset.id
+                                ? { ...p, repeatPenalty: e.target.value ? Number(e.target.value) : undefined }
                                 : p
                             )
                           })

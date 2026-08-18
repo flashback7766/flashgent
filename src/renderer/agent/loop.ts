@@ -724,10 +724,12 @@ function applyDecision(
 
 function accumulate(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
   if (!current) return next
+  const prompt = next.prompt || current.prompt
+  const completion = current.completion + next.completion
   return {
-    prompt: current.prompt + next.prompt,
-    completion: current.completion + next.completion,
-    total: current.total + next.total
+    prompt,
+    completion,
+    total: prompt + completion
   }
 }
 

@@ -137,6 +137,8 @@ export class LmStudioClient {
     }
     if (preset.topP !== undefined) body.top_p = preset.topP
     if (preset.topK !== undefined) body.top_k = preset.topK
+    if (preset.minP !== undefined) body.min_p = preset.minP
+    if (preset.repeatPenalty !== undefined) body.repeat_penalty = preset.repeatPenalty
     if (preset.frequencyPenalty !== undefined) body.frequency_penalty = preset.frequencyPenalty
     if (preset.stop?.length) body.stop = preset.stop
 

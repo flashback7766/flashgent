@@ -3,9 +3,16 @@ import type { AppConfig, ModelPreset } from './types.js'
 export const CONFIG_VERSION = 1
 
 export const DEFAULT_PRESETS: ModelPreset[] = [
-  { id: 'coder', name: 'Coder', temperature: 0.3, topP: 0.9, maxTokens: 4096 },
-  { id: 'review', name: 'Code Review', temperature: 0.15, topP: 0.85, maxTokens: 4096 },
-  { id: 'free', name: 'Free-thinking', temperature: 0.8, topP: 0.95, maxTokens: 4096 }
+  {
+    id: 'default',
+    name: 'Default',
+    temperature: 0.7,
+    topP: 0.9,
+    topK: 20,
+    minP: 0.01,
+    repeatPenalty: 1.15,
+    maxTokens: 4096
+  }
 ]
 
 export const DEFAULT_KEYBINDINGS: Record<string, string> = {
@@ -25,7 +32,7 @@ export function defaultConfig(): AppConfig {
     activeEndpointId: 'local',
     lastModel: null,
     presets: DEFAULT_PRESETS,
-    activePresetId: 'coder',
+    activePresetId: 'default',
     effort: 'high',
     permissionMode: 'manual',
     agent: {
@@ -74,7 +81,7 @@ export function mergeConfig(partial: unknown): AppConfig {
   if (!partial || typeof partial !== 'object') return base
   const p = partial as Partial<AppConfig>
 
-  return {
+  const merged: AppConfig = {
     ...base,
     ...p,
     agent: { ...base.agent, ...(p.agent ?? {}) },
@@ -86,4 +93,24 @@ export function mergeConfig(partial: unknown): AppConfig {
     mcpServers: p.mcpServers ?? base.mcpServers,
     version: CONFIG_VERSION
   }
+
+  // Migrate: old built-in preset IDs are gone; if the stored activePresetId
+  // points to one of them (and no custom preset with that id exists), fall
+  // back to 'default' so the user always has a valid baseline.
+  const LEGACY_BUILTIN_IDS = new Set(['coder', 'review', 'free'])
+  const hasMatchingPreset = merged.presets.some((p) => p.id === merged.activePresetId)
+  if (!hasMatchingPreset || LEGACY_BUILTIN_IDS.has(merged.activePresetId)) {
+    const replacementPreset = LEGACY_BUILTIN_IDS.has(merged.activePresetId)
+      ? null  // was a built-in, discard it
+      : merged.presets.find((p) => p.id === merged.activePresetId)
+    if (!replacementPreset) {
+      // Ensure the 'default' preset exists
+      if (!merged.presets.some((p) => p.id === 'default')) {
+        merged.presets = [...DEFAULT_PRESETS, ...merged.presets.filter((p) => !LEGACY_BUILTIN_IDS.has(p.id))]
+      }
+      merged.activePresetId = 'default'
+    }
+  }
+
+  return merged
 }
