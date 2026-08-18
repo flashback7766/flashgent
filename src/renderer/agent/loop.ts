@@ -66,6 +66,8 @@ export interface AgentRunOptions {
   cwd: string
   platform: string
   projectInstructions: string
+  /** High-level architectural symbol and file tree map. */
+  projectOutline?: string
   contextTokens: number | null
   /** Start in text-protocol mode without probing for native tool support. */
   forceReact: boolean
@@ -608,6 +610,7 @@ function systemPromptFor(
     cwd: options.cwd,
     platform: options.platform,
     projectInstructions: options.projectInstructions,
+    projectOutline: options.projectOutline,
     persona: options.config.persona,
     reactMode: react,
     tools,

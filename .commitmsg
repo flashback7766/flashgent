@@ -1,0 +1,15 @@
+feat: v0.2.0 - Benchmark Arena, Time Machine Rollback, Smart Indexer, Headless Browser
+
+- Benchmark Arena UI with leaderboard, tier filters, live progress
+- In-app tab switcher Chat <-> Arena in Sidebar
+- Session Diff Time Machine: file_snapshots table captures before/after on every write/edit
+- Rollback UI: Rollback files and chat to here action on assistant messages
+- Inline Revert file change button in ToolBlock for write_file/edit_file calls
+- Smart Project Indexer: fast-glob AST scanner caches .flashgent/index.json
+- Injects project outline into system prompt
+- Headless Browser Tool: Electron offscreen browse_page tool with screenshot support
+- Multi-model routing: single model default, VRAM-aware no dual-load
+- DB migration v4: benchmark_runs and file_snapshots tables
+- New IPC channels: benchmarkList/Delete, fsSnapshotList/Revert, fsRollbackTurn, browserBrowse, indexerScan/Get
+- New unit test: snapshots-rollback.test.ts
+- Bump version to 0.2.0

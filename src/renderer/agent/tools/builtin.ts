@@ -540,6 +540,51 @@ const httpRequest: BuiltinTool = {
   }
 }
 
+const browsePage: BuiltinTool = {
+  definition: {
+    name: 'browse_page',
+    description:
+      'Load a web page or local server URL (e.g. http://localhost:3000) in headless browser, extract text content, console errors, and optional screenshot.',
+    risk: 'read',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to load (http://, https://, or file://).' },
+        waitForSelector: { type: 'string', description: 'Optional CSS selector to wait for before extracting text.' },
+        captureScreenshot: { type: 'boolean', description: 'Set true to capture visual screenshot.' }
+      },
+      required: ['url']
+    }
+  },
+  async execute(input) {
+    const url = str(input, 'url')
+    const waitForSelector = typeof input.waitForSelector === 'string' ? input.waitForSelector : undefined
+    const captureScreenshot = bool(input, 'captureScreenshot')
+
+    const res = unwrap(
+      await window.flashgent.browser.browse({
+        url,
+        waitForSelector,
+        captureScreenshot
+      })
+    )
+
+    let content = `Title: ${res.title}\nURL: ${res.url}\n\n${res.content}`
+    if (res.consoleErrors.length > 0) {
+      content += `\n\n[Console Errors (${res.consoleErrors.length})]:\n${res.consoleErrors.join('\n')}`
+    }
+
+    return {
+      ok: true,
+      content,
+      display: {
+        kind: 'plain',
+        title: `Browser: ${res.title || url}`
+      }
+    }
+  }
+}
+
 export const BUILTIN_TOOLS: BuiltinTool[] = [
   readFile,
   writeFile,
@@ -553,7 +598,8 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
   webSearch,
   directoryTree,
   gitSummary,
-  httpRequest
+  httpRequest,
+  browsePage
 ]
 
 export const BUILTIN_BY_NAME = new Map(BUILTIN_TOOLS.map((t) => [t.definition.name, t]))

@@ -225,6 +225,7 @@ function Action({
 export function MessageView({ message, isLast }: MessageViewProps): React.ReactElement {
   const streaming = useApp((s) => s.streaming)
   const rewindTo = useApp((s) => s.rewindTo)
+  const rollbackTurn = useApp((s) => s.rollbackTurn)
   const forkFrom = useApp((s) => s.forkFrom)
   const retryLast = useApp((s) => s.retryLast)
   const toast = useApp((s) => s.toast)
@@ -306,6 +307,22 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
+              </svg>
+            </Action>
+            <Action
+              label="Rollback files & chat to here"
+              disabled={streaming}
+              onClick={() => void rollbackTurn(message.id)}
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                <path
+                  d="M2 8a6 6 0 1 1 1.8 4.2M2 3v5h5"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx="8" cy="8" r="1.5" fill="currentColor" />
               </svg>
             </Action>
             <Action label="Fork from here" disabled={streaming} onClick={() => void forkFrom(message.id)}>

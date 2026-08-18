@@ -12,8 +12,11 @@ import type {
   FileWriteRequest,
   GlobRequest,
   GrepMatch,
-  GrepRequest
+  GrepRequest,
+  FileSnapshot
 } from '../../shared/types.js'
+import { unlink } from 'node:fs/promises'
+import { getFileSnapshot, listFileSnapshots, saveFileSnapshot } from '../db/index.js'
 import { ignoreMatcher, isIgnored, resolveSafePath } from '../safety.js'
 import { handle, handleN } from './result.js'
 
@@ -59,9 +62,23 @@ export function registerFsHandlers(): void {
 
   handle<FileWriteRequest, { path: string; created: boolean }>(CH.fsWrite, async (req) => {
     const path = resolveSafePath(req.path, req.cwd, 'write')
-    const created = !existsSync(path)
+    const exists = existsSync(path)
+    const beforeContent = exists ? await readFile(path, 'utf8').catch(() => null) : null
+    const created = !exists
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, req.content, 'utf8')
+
+    if (req.sessionId) {
+      saveFileSnapshot({
+        sessionId: req.sessionId,
+        messageId: req.messageId ?? null,
+        toolCallId: req.toolCallId ?? null,
+        path: relative(req.cwd, path) || path,
+        contentBefore: beforeContent,
+        contentAfter: req.content
+      })
+    }
+
     return { path, created }
   })
 
@@ -90,6 +107,18 @@ export function registerFsHandlers(): void {
       : before.replace(req.oldString, req.newString)
 
     await writeFile(path, after, 'utf8')
+
+    if (req.sessionId) {
+      saveFileSnapshot({
+        sessionId: req.sessionId,
+        messageId: req.messageId ?? null,
+        toolCallId: req.toolCallId ?? null,
+        path: relative(req.cwd, path) || path,
+        contentBefore: before,
+        contentAfter: after
+      })
+    }
+
     return {
       path,
       replacements: req.replaceAll ? occurrences : 1,
@@ -211,6 +240,55 @@ export function registerFsHandlers(): void {
         }
       }
       return out
+    }
+  )
+
+  handleN<FileSnapshot[]>(CH.fsSnapshotList, async (sessionId: string) => {
+    return listFileSnapshots(sessionId)
+  })
+
+  handleN<boolean>(CH.fsSnapshotRevert, async (snapshotId: string, cwd: string) => {
+    const snapshot = getFileSnapshot(snapshotId)
+    if (!snapshot) throw new Error(`Snapshot not found: ${snapshotId}`)
+    const fullPath = resolveSafePath(snapshot.path, cwd, 'write')
+
+    if (snapshot.contentBefore === null) {
+      // File did not exist before — delete it
+      if (existsSync(fullPath)) {
+        await unlink(fullPath)
+      }
+    } else {
+      // Restore previous content
+      await mkdir(dirname(fullPath), { recursive: true })
+      await writeFile(fullPath, snapshot.contentBefore, 'utf8')
+    }
+
+    return true
+  })
+
+  handleN<{ revertedFiles: string[] }>(
+    CH.fsRollbackTurn,
+    async (sessionId: string, uptoMessageId: string, cwd: string) => {
+      const snapshots = listFileSnapshots(sessionId)
+      const revertedSet = new Set<string>()
+
+      // Process in reverse chronological order
+      const reversed = [...snapshots].reverse()
+      for (const snap of reversed) {
+        if (!snap.messageId || snap.messageId === uptoMessageId) break
+        const fullPath = resolveSafePath(snap.path, cwd, 'write')
+        if (snap.contentBefore === null) {
+          if (existsSync(fullPath)) {
+            await unlink(fullPath)
+          }
+        } else {
+          await mkdir(dirname(fullPath), { recursive: true })
+          await writeFile(fullPath, snap.contentBefore, 'utf8')
+        }
+        revertedSet.add(snap.path)
+      }
+
+      return { revertedFiles: [...revertedSet] }
     }
   )
 }

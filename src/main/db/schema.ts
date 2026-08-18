@@ -109,6 +109,35 @@ const MIGRATIONS: Array<(db: BetterSqlite3.Database) => void> = [
       ALTER TABLE sessions ADD COLUMN effort TEXT NOT NULL DEFAULT 'high';
       ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'manual';
     `)
+  },
+
+  // v4 — benchmark arena runs and file snapshots time machine
+  (db) => {
+    db.exec(`
+      CREATE TABLE benchmark_runs (
+        id          TEXT PRIMARY KEY,
+        model       TEXT NOT NULL,
+        score       REAL NOT NULL,
+        max_score   REAL NOT NULL,
+        percentage  REAL NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at  INTEGER NOT NULL
+      );
+      CREATE INDEX idx_benchmark_runs_time ON benchmark_runs(created_at DESC);
+
+      CREATE TABLE file_snapshots (
+        id             TEXT PRIMARY KEY,
+        session_id     TEXT NOT NULL,
+        message_id     TEXT,
+        tool_call_id   TEXT,
+        path           TEXT NOT NULL,
+        content_before TEXT,
+        content_after  TEXT,
+        created_at     INTEGER NOT NULL
+      );
+      CREATE INDEX idx_file_snapshots_session ON file_snapshots(session_id, created_at);
+      CREATE INDEX idx_file_snapshots_message ON file_snapshots(message_id);
+    `)
   }
 ]
 

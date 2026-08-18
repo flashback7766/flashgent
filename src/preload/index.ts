@@ -28,7 +28,17 @@ const api: FlashgentApi = {
     listDir: (req) => call(CH.fsListDir, req),
     pickDirectory: () => call(CH.fsPickDirectory),
     pickFiles: (cwd) => call(CH.fsPickFiles, cwd),
-    resolveDropped: (paths, cwd) => call(CH.fsResolveDropped, paths, cwd)
+    resolveDropped: (paths, cwd) => call(CH.fsResolveDropped, paths, cwd),
+    listSnapshots: (sessionId) => call(CH.fsSnapshotList, sessionId),
+    revertSnapshot: (snapshotId, cwd) => call(CH.fsSnapshotRevert, snapshotId, cwd),
+    rollbackTurn: (sessionId, uptoMessageId, cwd) => call(CH.fsRollbackTurn, sessionId, uptoMessageId, cwd)
+  },
+  browser: {
+    browse: (req) => call(CH.browserBrowse, req)
+  },
+  indexer: {
+    scan: (cwd) => call(CH.indexerScan, cwd),
+    get: (cwd) => call(CH.indexerGet, cwd)
   },
   shell: {
     run: (req) => call(CH.shellRun, req),
@@ -48,7 +58,9 @@ const api: FlashgentApi = {
   db: {
     listSessions: () => call(CH.dbSessionList),
     createSession: (input) => call(CH.dbSessionCreate, input),
-    updateSession: (id, patch) => call(CH.dbSessionUpdate, id, patch),
+    updateSession(id, patch) {
+      return call(CH.dbSessionUpdate, id, patch)
+    },
     deleteSession: (id) => call(CH.dbSessionDelete, id),
     forkSession: (id, uptoMessageId) => call(CH.dbSessionFork, id, uptoMessageId),
     listMessages: (sessionId) => call(CH.dbMessageList, sessionId),
@@ -81,6 +93,8 @@ const api: FlashgentApi = {
   },
   benchmark: {
     run: (model?: string) => call(CH.benchmarkRun, model),
+    list: () => call(CH.benchmarkList),
+    delete: (id: string) => call(CH.benchmarkDelete, id),
     onProgress: (cb) => subscribe(CH.evtBenchmarkProgress, cb as never),
     onDone: (cb) => subscribe(CH.evtBenchmarkDone, cb as never)
   },

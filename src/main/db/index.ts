@@ -3,7 +3,15 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionCreateInput, SessionSearchHit, SessionSearchQuery, Snippet } from '../../shared/ipc.js'
-import type { ContentBlock, Message, Session, ToolUseBlock } from '../../shared/types.js'
+import type {
+  BenchmarkReport,
+  BenchmarkRunRecord,
+  ContentBlock,
+  FileSnapshot,
+  Message,
+  Session,
+  ToolUseBlock
+} from '../../shared/types.js'
 import { logger } from '../logger.js'
 import { backupDir, dbFile } from '../paths.js'
 import { migrate } from './schema.js'
@@ -432,3 +440,87 @@ export function deleteSnippet(id: string): boolean {
   handle().prepare('DELETE FROM snippets WHERE id = ?').run(id)
   return true
 }
+
+// --- Benchmark Runs --------------------------------------------------------
+
+export function saveBenchmarkRun(report: BenchmarkReport): BenchmarkRunRecord {
+  const record: BenchmarkRunRecord = {
+    id: randomUUID(),
+    model: report.modelName,
+    score: report.totalScore,
+    maxScore: report.maxScore,
+    percentage: report.percentage,
+    reportJson: JSON.stringify(report),
+    createdAt: Date.now()
+  }
+
+  handle()
+    .prepare(
+      `INSERT INTO benchmark_runs (id, model, score, max_score, percentage, report_json, created_at)
+       VALUES (@id, @model, @score, @maxScore, @percentage, @reportJson, @createdAt)`
+    )
+    .run(record)
+
+  return record
+}
+
+export function listBenchmarkRuns(): BenchmarkRunRecord[] {
+  const rows = handle()
+    .prepare(
+      `SELECT id, model, score, max_score AS maxScore, percentage, report_json AS reportJson, created_at AS createdAt
+         FROM benchmark_runs ORDER BY created_at DESC`
+    )
+    .all() as BenchmarkRunRecord[]
+  return rows
+}
+
+export function deleteBenchmarkRun(id: string): boolean {
+  handle().prepare('DELETE FROM benchmark_runs WHERE id = ?').run(id)
+  return true
+}
+
+// --- File Snapshots Time Machine -------------------------------------------
+
+export function saveFileSnapshot(snapshot: Omit<FileSnapshot, 'id' | 'createdAt'>): FileSnapshot {
+  const record: FileSnapshot = {
+    ...snapshot,
+    id: randomUUID(),
+    createdAt: Date.now()
+  }
+
+  handle()
+    .prepare(
+      `INSERT INTO file_snapshots (id, session_id, message_id, tool_call_id, path, content_before, content_after, created_at)
+       VALUES (@id, @sessionId, @messageId, @toolCallId, @path, @contentBefore, @contentAfter, @createdAt)`
+    )
+    .run(record)
+
+  return record
+}
+
+export function listFileSnapshots(sessionId: string): FileSnapshot[] {
+  return handle()
+    .prepare(
+      `SELECT id, session_id AS sessionId, message_id AS messageId, tool_call_id AS toolCallId,
+              path, content_before AS contentBefore, content_after AS contentAfter, created_at AS createdAt
+         FROM file_snapshots WHERE session_id = ? ORDER BY created_at ASC`
+    )
+    .all(sessionId) as FileSnapshot[]
+}
+
+export function getFileSnapshot(id: string): FileSnapshot | null {
+  const row = handle()
+    .prepare(
+      `SELECT id, session_id AS sessionId, message_id AS messageId, tool_call_id AS toolCallId,
+              path, content_before AS contentBefore, content_after AS contentAfter, created_at AS createdAt
+         FROM file_snapshots WHERE id = ?`
+    )
+    .get(id) as FileSnapshot | undefined
+  return row ?? null
+}
+
+export function deleteFileSnapshotsForSession(sessionId: string): boolean {
+  handle().prepare('DELETE FROM file_snapshots WHERE session_id = ?').run(sessionId)
+  return true
+}
+

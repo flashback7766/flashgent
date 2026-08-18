@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { BenchmarkView } from './components/BenchmarkView.js'
 import { ChatView } from './components/ChatView.js'
 import { Composer } from './components/Composer.js'
 import { Settings } from './components/Settings.js'
@@ -133,15 +134,23 @@ export default function App(): React.ReactElement {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const activeView = useApp((s) => s.activeView)
+
   if (!ready) return <Splash />
 
   return (
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        <TabBar />
-        <ChatView />
-        <Composer />
+        {activeView === 'benchmark' ? (
+          <BenchmarkView />
+        ) : (
+          <>
+            <TabBar />
+            <ChatView />
+            <Composer />
+          </>
+        )}
       </main>
       <Settings />
       <Toasts />

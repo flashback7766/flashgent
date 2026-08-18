@@ -2,7 +2,9 @@ import { BrowserWindow } from 'electron'
 import { createLlmEvaluator, runBenchmark } from '../../../tests/benchmark/runner.js'
 import { CH } from '../../shared/ipc.js'
 import { readConfig } from '../configStore.js'
-import { handle } from './result.js'
+import { deleteBenchmarkRun, listBenchmarkRuns, saveBenchmarkRun } from '../db/index.js'
+import { handle, handleN } from './result.js'
+import type { BenchmarkRunRecord } from '../../shared/types.js'
 
 let running = false
 
@@ -33,9 +35,21 @@ export function registerBenchmarkHandlers(): void {
       const report = await runBenchmark(targetModel, evaluator, (progress) => {
         broadcast(CH.evtBenchmarkProgress, progress)
       })
+
+      // Persist run in database for historical leaderboards
+      saveBenchmarkRun(report)
+
       broadcast(CH.evtBenchmarkDone, { report })
     } finally {
       running = false
     }
+  })
+
+  handleN<BenchmarkRunRecord[]>(CH.benchmarkList, async () => {
+    return listBenchmarkRuns()
+  })
+
+  handleN<boolean>(CH.benchmarkDelete, async (id: string) => {
+    return deleteBenchmarkRun(id)
   })
 }

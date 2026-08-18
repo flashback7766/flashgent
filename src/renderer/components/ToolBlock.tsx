@@ -1,6 +1,7 @@
 import type { ToolUseBlock } from '@shared/types'
 import { useState } from 'react'
 import { formatDuration } from '../lib/format.js'
+import { useApp } from '../store/app.js'
 import { Markdown } from './Markdown.js'
 
 const STATUS_DOT: Record<ToolUseBlock['status'], string> = {
@@ -129,6 +130,32 @@ export function ToolBlockView({ block }: { block: ToolUseBlock }): React.ReactEl
             Result
           </span>
           <ResultBody block={block} />
+
+          {(block.name === 'write_file' || block.name === 'edit_file') && block.status === 'ok' && (
+            <div className="mt-2 pt-2 border-t border-line/60 flex justify-end">
+              <button
+                type="button"
+                onClick={async () => {
+                  const path = typeof block.input.path === 'string' ? block.input.path : ''
+                  if (!path) return
+                  const session = useApp.getState().sessions.find((s) => s.id === useApp.getState().activeSessionId)
+                  if (!session) return
+                  const snapshots = await window.flashgent.fs.listSnapshots(session.id)
+                  if (snapshots.ok && snapshots.value.length > 0) {
+                    const match = snapshots.value.reverse().find((s) => s.path.endsWith(path))
+                    if (match) {
+                      await useApp.getState().revertSnapshot(match.id)
+                      return
+                    }
+                  }
+                  useApp.getState().toast('error', 'No snapshot available for this file')
+                }}
+                className="rounded border border-line bg-surface px-2.5 py-1 text-[11.5px] font-medium text-muted hover:border-brand hover:text-brand transition-colors"
+              >
+                ↩ Revert file change
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

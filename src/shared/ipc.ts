@@ -21,7 +21,12 @@ import type {
   UpdateInfo,
   UpdateProgress,
   BenchmarkProgress,
-  BenchmarkReport
+  BenchmarkReport,
+  BenchmarkRunRecord,
+  FileSnapshot,
+  ProjectIndexSummary,
+  BrowsePageRequest,
+  BrowsePageResult
 } from './types.js'
 
 /** Channel names. Kept in one place so main and preload cannot drift apart. */
@@ -80,6 +85,17 @@ export const CH = {
   updaterInstall: 'updater:install',
 
   benchmarkRun: 'benchmark:run',
+  benchmarkList: 'benchmark:list',
+  benchmarkDelete: 'benchmark:delete',
+
+  fsSnapshotList: 'fs:snapshot:list',
+  fsSnapshotRevert: 'fs:snapshot:revert',
+  fsRollbackTurn: 'fs:rollback:turn',
+
+  browserBrowse: 'browser:browse',
+
+  indexerScan: 'indexer:scan',
+  indexerGet: 'indexer:get',
 
   /** main -> renderer */
   evtLlmChunk: 'evt:llm:chunk',
@@ -205,6 +221,16 @@ export interface FlashgentApi {
     pickDirectory(): Promise<IpcResult<string | null>>
     pickFiles(cwd: string): Promise<IpcResult<string[]>>
     resolveDropped(paths: string[], cwd: string): Promise<IpcResult<FileReadResult[]>>
+    listSnapshots(sessionId: string): Promise<IpcResult<FileSnapshot[]>>
+    revertSnapshot(snapshotId: string, cwd: string): Promise<IpcResult<boolean>>
+    rollbackTurn(sessionId: string, uptoMessageId: string, cwd: string): Promise<IpcResult<{ revertedFiles: string[] }>>
+  }
+  browser: {
+    browse(req: BrowsePageRequest): Promise<IpcResult<BrowsePageResult>>
+  }
+  indexer: {
+    scan(cwd: string): Promise<IpcResult<ProjectIndexSummary>>
+    get(cwd: string): Promise<IpcResult<ProjectIndexSummary | null>>
   }
   shell: {
     run(req: ShellRequest): Promise<IpcResult<ShellResult>>
@@ -267,6 +293,8 @@ export interface FlashgentApi {
   }
   benchmark: {
     run(model?: string): Promise<IpcResult<void>>
+    list(): Promise<IpcResult<BenchmarkRunRecord[]>>
+    delete(id: string): Promise<IpcResult<boolean>>
     onProgress(cb: (progress: BenchmarkProgress) => void): () => void
     onDone(cb: (result: { report: BenchmarkReport }) => void): () => void
   }

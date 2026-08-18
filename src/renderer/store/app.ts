@@ -91,9 +91,13 @@ interface AppState {
   toasts: Toast[]
   settingsOpen: boolean
   searchQuery: string
+  activeView: 'chat' | 'benchmark'
 
   // actions
   init: () => Promise<void>
+  setActiveView: (view: 'chat' | 'benchmark') => void
+  revertSnapshot: (snapshotId: string) => Promise<void>
+  rollbackTurn: (messageId: string) => Promise<void>
   refreshModels: () => Promise<void>
   saveConfig: (patch: Partial<AppConfig>) => Promise<void>
   newSession: (cwd?: string) => Promise<void>
@@ -191,6 +195,7 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   settingsOpen: false,
   searchQuery: '',
+  activeView: 'chat',
   updateInfo: null,
   updateProgress: null,
   benchmarkRunning: false,
@@ -520,6 +525,34 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({ sessions: [fork, ...s.sessions] }))
     await get().selectSession(fork.id)
     get().toast('success', `Forked to "${fork.title}"`)
+  },
+
+  setActiveView(activeView) {
+    set({ activeView })
+  },
+
+  async revertSnapshot(snapshotId) {
+    const session = get().sessions.find((s) => s.id === get().activeSessionId)
+    if (!session) return
+    const res = await api().fs.revertSnapshot(snapshotId, session.cwd)
+    if (res.ok) {
+      get().toast('success', 'File changes reverted to previous snapshot')
+    } else {
+      get().toast('error', `Revert failed: ${res.error}`)
+    }
+  },
+
+  async rollbackTurn(messageId) {
+    const session = get().sessions.find((s) => s.id === get().activeSessionId)
+    if (!session) return
+    const res = await api().fs.rollbackTurn(session.id, messageId, session.cwd)
+    if (res.ok) {
+      await get().rewindTo(messageId)
+      const filesCount = res.value.revertedFiles.length
+      get().toast('success', `Rolled back turn: restored ${filesCount} file(s) on disk`)
+    } else {
+      get().toast('error', `Rollback failed: ${res.error}`)
+    }
   },
 
   async retryLast() {
@@ -923,6 +956,13 @@ async function streamAssistantTurn(
     return run
   }
 
+  // Trigger non-blocking background index scan and retrieve cached outline
+  void api().indexer.scan(session.cwd).catch(() => undefined)
+  const indexSummary = orElse(await api().indexer.get(session.cwd), null)
+  const projectOutline = indexSummary
+    ? `Workspace has ${indexSummary.filesCount} files. Key files: ${indexSummary.keyFiles.join(', ')}.\nKey exports:\n${indexSummary.exports.slice(0, 15).map((e) => `- ${e.file}: ${e.symbols.join(', ')}`).join('\n')}`
+    : undefined
+
   let result
   try {
     result = await runAgent({
@@ -938,6 +978,7 @@ async function streamAssistantTurn(
       cwd: session.cwd,
       platform: get().info?.platform ?? 'win32',
       projectInstructions,
+      projectOutline,
       contextTokens: get().contextTokens,
       forceReact: reactModels.has(model),
       // Saves the whole text-protocol section on every request.

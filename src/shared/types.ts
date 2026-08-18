@@ -343,6 +343,9 @@ export interface FileWriteRequest {
   path: string
   cwd: string
   content: string
+  sessionId?: string
+  messageId?: string
+  toolCallId?: string
 }
 
 export interface FileEditRequest {
@@ -351,6 +354,9 @@ export interface FileEditRequest {
   oldString: string
   newString: string
   replaceAll?: boolean
+  sessionId?: string
+  messageId?: string
+  toolCallId?: string
 }
 
 export interface FileEditResult {
@@ -488,4 +494,48 @@ export interface BenchmarkProgress {
   total: number
   scenario: string
   score: number
+}
+
+export interface BenchmarkRunRecord {
+  id: string
+  model: string
+  score: number
+  maxScore: number
+  percentage: number
+  reportJson: string
+  createdAt: number
+}
+
+export interface FileSnapshot {
+  id: string
+  sessionId: string
+  messageId?: string | null
+  toolCallId?: string | null
+  path: string
+  contentBefore: string | null
+  contentAfter: string | null
+  createdAt: number
+}
+
+export interface ProjectIndexSummary {
+  filesCount: number
+  keyFiles: string[]
+  exports: Array<{ file: string; symbols: string[] }>
+  structureText: string
+}
+
+export interface BrowsePageRequest {
+  url: string
+  waitForSelector?: string
+  timeoutMs?: number
+  captureScreenshot?: boolean
+}
+
+export interface BrowsePageResult {
+  url: string
+  title: string
+  content: string
+  consoleErrors: string[]
+  screenshotBase64?: string
+  status: number
 }

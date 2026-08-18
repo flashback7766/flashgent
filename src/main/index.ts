@@ -6,8 +6,10 @@ import { readConfig } from './configStore.js'
 import { closeDatabase, openDatabase } from './db/index.js'
 import { registerAppHandlers, setInitialWorkspace } from './ipc/app.js'
 import { registerBenchmarkHandlers } from './ipc/benchmark.js'
+import { registerBrowserHandlers } from './ipc/browser.js'
 import { registerDbHandlers } from './ipc/db.js'
 import { registerFsHandlers } from './ipc/fs.js'
+import { registerIndexerHandlers } from './ipc/indexer.js'
 import { abortAllStreams, registerLlmHandlers } from './ipc/llm.js'
 import { connectEnabledServers, disconnectAll, registerMcpHandlers } from './ipc/mcp.js'
 import { registerNetHandlers } from './ipc/net.js'
@@ -101,6 +103,8 @@ async function bootstrap(): Promise<void> {
   registerMcpHandlers()
   registerUpdaterHandlers()
   registerBenchmarkHandlers()
+  registerBrowserHandlers()
+  registerIndexerHandlers()
   initUpdater()
 
   mainWindow = createMainWindow(join(__dirname, '../preload/index.mjs'))

@@ -135,6 +135,8 @@ export function Sidebar(): React.ReactElement {
   const updateProgress = useApp((s) => s.updateProgress)
   const installUpdate = useApp((s) => s.installUpdate)
   const downloadUpdate = useApp((s) => s.downloadUpdate)
+  const activeView = useApp((s) => s.activeView)
+  const setActiveView = useApp((s) => s.setActiveView)
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
 
@@ -177,9 +179,33 @@ export function Sidebar(): React.ReactElement {
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-surface">
       <div className="px-2 pt-3 pb-2">
+        <div className="mb-2 flex rounded-md bg-canvas p-0.5 text-[12px] font-medium">
+          <button
+            type="button"
+            onClick={() => setActiveView('chat')}
+            className={`flex-1 rounded py-1 text-center transition-colors ${
+              activeView === 'chat' ? 'bg-surface font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
+            }`}
+          >
+            💬 Chat
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('benchmark')}
+            className={`flex-1 rounded py-1 text-center transition-colors ${
+              activeView === 'benchmark' ? 'bg-surface font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
+            }`}
+          >
+            ⚡ Arena
+          </button>
+        </div>
+
         <button
           type="button"
-          onClick={() => void newSession(activeSession?.cwd)}
+          onClick={() => {
+            setActiveView('chat')
+            void newSession(activeSession?.cwd)
+          }}
           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-muted hover:bg-raised hover:text-ink"
         >
           <span className="text-[14px] leading-none text-faint">+</span>
