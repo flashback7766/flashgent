@@ -220,9 +220,9 @@ export function registerUpdaterHandlers(): void {
     if (!app.isPackaged) {
       throw new Error('Updater is disabled in development mode.')
     }
-    // quitAndInstall(isSilent = false, isForceRunAfter = true)
+    // quitAndInstall(isSilent = true, isForceRunAfter = true)
     // Full user data in %APPDATA%\flashgent and ~/.flashgent is preserved.
-    autoUpdater.quitAndInstall(false, true)
+    autoUpdater.quitAndInstall(true, true)
     return true
   })
 }

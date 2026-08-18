@@ -1,6 +1,6 @@
 # FLASHGENT — Project Context & Engineering Guide
 
-> **Current Version**: `v0.1.7`  
+> **Current Version**: `v0.1.8`  
 > **Repository**: [https://github.com/flashback7766/flashgent](https://github.com/flashback7766/flashgent)  
 > **OS Target**: Windows (x64) & Linux (x64 AppImage, deb, Arch Linux pacman)  
 > **Development Environment**: Windows, Shell: PowerShell (Command chaining operator is `;`, not `&&`)

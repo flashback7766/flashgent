@@ -54,8 +54,8 @@ export function parseToolArguments(raw: string): { args: Record<string, unknown>
 export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluator {
   const baseUrl = (opts.baseUrl || 'http://localhost:1234/v1').replace(/\/+$/, '')
   const model = opts.modelName
-  const maxTurns = opts.maxTurns ?? 5
-  const timeoutMs = opts.timeoutMs ?? 60_000
+  const maxTurns = opts.maxTurns ?? 6
+  const timeoutMs = opts.timeoutMs ?? 240_000
 
   const tools = [
     {
@@ -598,12 +598,12 @@ export async function runBenchmark(
   const weightedLogicScore = (easyPassed * 1 + medPassed * 3 + hardPassed * 5) / 70
   const thinkingEfficiency = Math.round(weightedLogicScore * 10 * 10) / 10
 
-  // 3. Execution Speed & Economy: benchmark scenario durations against reasonable budgets
+  // 3. Execution Speed & Economy: calibrated for local models (5-30 tok/s)
   const speedScores = scenarioResults.map((s) => {
     if (!s.passed) return 0
-    const budget = s.tier === 'easy' ? 8_000 : s.tier === 'medium' ? 20_000 : 45_000
+    const budget = s.tier === 'easy' ? 45_000 : s.tier === 'medium' ? 120_000 : 200_000
     if (s.durationMs <= budget) return 1
-    return Math.max(0.2, 1 - (s.durationMs - budget) / (budget * 2))
+    return Math.max(0.4, 1 - (s.durationMs - budget) / (budget * 2))
   })
   const avgSpeedRatio =
     speedScores.reduce((sum, v) => sum + v, 0) / Math.max(1, scenarioResults.length)

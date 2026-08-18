@@ -131,6 +131,10 @@ export function Sidebar(): React.ReactElement {
   const mcpTools = useApp((s) => s.mcpTools)
   const setSettingsOpen = useApp((s) => s.setSettingsOpen)
   const info = useApp((s) => s.info)
+  const updateInfo = useApp((s) => s.updateInfo)
+  const updateProgress = useApp((s) => s.updateProgress)
+  const installUpdate = useApp((s) => s.installUpdate)
+  const downloadUpdate = useApp((s) => s.downloadUpdate)
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
 
@@ -250,6 +254,41 @@ export function Sidebar(): React.ReactElement {
       </nav>
 
       <div className="border-t border-line px-3 py-2.5 text-[11.5px]">
+        {/* Restart / Update banner when ready */}
+        {updateInfo?.downloaded ? (
+          <button
+            type="button"
+            onClick={() => void installUpdate()}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md bg-brand px-2.5 py-1.5 text-[11.5px] font-medium text-white shadow-sm transition hover:opacity-90"
+            title="Click to restart and install update"
+          >
+            <span>🔄</span>
+            <span className="truncate">Restart to update ({updateInfo.version ? `v${updateInfo.version}` : 'ready'})</span>
+          </button>
+        ) : updateProgress ? (
+          <div className="mb-2 rounded-md border border-line bg-canvas p-2 text-[11px]">
+            <div className="flex justify-between text-muted">
+              <span>Downloading update…</span>
+              <span className="font-mono">{updateProgress.percent}%</span>
+            </div>
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-line">
+              <div
+                className="h-full bg-brand transition-all"
+                style={{ width: `${updateProgress.percent}%` }}
+              />
+            </div>
+          </div>
+        ) : updateInfo?.available ? (
+          <button
+            type="button"
+            onClick={() => void downloadUpdate()}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-brand/40 bg-brand/10 px-2 py-1 text-[11px] font-medium text-brand hover:bg-brand/20"
+          >
+            <span>⬇️</span>
+            <span>Download v{updateInfo.version}</span>
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={() => void refreshModels()}
