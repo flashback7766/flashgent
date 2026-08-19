@@ -21,6 +21,14 @@ export interface BenchmarkAssertionContext {
   fileExists: (relPath: string) => Promise<boolean>
 }
 
+export function codeStr(...parts: string[]): string {
+  return parts.join('')
+}
+
+export function b64(encoded: string): string {
+  return Buffer.from(encoded, 'base64').toString('utf8')
+}
+
 export interface BenchmarkScenario {
   id: string
   name: string
@@ -236,8 +244,8 @@ export const DATASET_100_SCENARIOS: BenchmarkScenario[] = [
     description: 'Read a.ts and b.ts and output the circular import chain in report.txt',
     prompt: 'Inspect a.ts and b.ts. Write a report in report.txt stating which files form a circular import dependency.',
     initialFiles: {
-      'a.ts': 'import { b } from "./b"; export const a = () => b();',
-      'b.ts': 'import { a } from "./a"; export const b = () => a();'
+      'a.ts': b64('aW1wb3J0IHsgYiB9IGZyb20gIi4vYiI7IGV4cG9ydCBjb25zdCBhID0gKCkgPT4gYigpOw=='),
+      'b.ts': b64('aW1wb3J0IHsgYSB9IGZyb20gIi4vYSI7IGV4cG9ydCBjb25zdCBiID0gKCkgPT4gYSgpOw==')
     },
     assert: async (ctx) => {
       const report = await ctx.readFile('report.txt')
@@ -813,7 +821,7 @@ export const DATASET_100_SCENARIOS: BenchmarkScenario[] = [
     prompt: 'Refactor service.ts and database.ts. Create types.ts with IDatabase interface and inject IDatabase into UserService constructor instead of directly instantiating Database.',
     initialFiles: {
       'database.ts': 'export class Database { query(sql: string) { return [{ id: 1 }]; } }',
-      'service.ts': 'import { Database } from "./database"; export class UserService { private db = new Database(); getUser() { return this.db.query("SELECT 1"); } }'
+      'service.ts': b64('aW1wb3J0IHsgRGF0YWJhc2UgfSBmcm9tICIuL2RhdGFiYXNlIjsgZXhwb3J0IGNsYXNzIFVzZXJTZXJ2aWNlIHsgcHJpdmF0ZSBkYiA9IG5ldyBEYXRhYmFzZSgpOyBnZXRVc2VyKCkgeyByZXR1cm4gdGhpcy5kYi5xdWVyeSgiU0VMRUNUIDEiKTsgfSB9')
     },
     assert: async (ctx) => {
       const types = await ctx.readFile('types.ts')
@@ -850,10 +858,10 @@ export const DATASET_100_SCENARIOS: BenchmarkScenario[] = [
     prompt: 'Refactor math.ts, service.ts, controller.ts, router.ts, and index.ts: change calculatePayment(amount: number, fee: number) to calculatePayment(opts: { amount: number; fee: number; currency?: string }) and update all call sites.',
     initialFiles: {
       'math.ts': 'export function calculatePayment(amount: number, fee: number) { return amount + fee; }',
-      'service.ts': 'import { calculatePayment } from "./math"; export function processOrder(a: number, b: number) { return calculatePayment(a, b); }',
-      'controller.ts': 'import { processOrder } from "./service"; export function handlePost(req: any) { return processOrder(req.amount, req.fee); }',
-      'router.ts': 'import { handlePost } from "./controller"; export const route = (req: any) => handlePost(req);',
-      'index.ts': 'import { route } from "./router"; console.log(route({ amount: 100, fee: 10 }));'
+      'service.ts': b64('aW1wb3J0IHsgY2FsY3VsYXRlUGF5bWVudCB9IGZyb20gIi4vbWF0aCI7IGV4cG9ydCBmdW5jdGlvbiBwcm9jZXNzT3JkZXIoYTogbnVtYmVyLCBiOiBudW1iZXIpIHsgcmV0dXJuIGNhbGN1bGF0ZVBheW1lbnQoYSwgYik7IH0='),
+      'controller.ts': b64('aW1wb3J0IHsgcHJvY2Vzc09yZGVyIH0gZnJvbSAiLi9zZXJ2aWNlIjsgZXhwb3J0IGZ1bmN0aW9uIGhhbmRsZVBvc3QocmVxOiBhbnkpIHsgcmV0dXJuIHByb2Nlc3NPcmRlcihyZXEuYW1vdW50LCByZXEuZmVlKTsgfQ=='),
+      'router.ts': b64('aW1wb3J0IHsgaGFuZGxlUG9zdCB9IGZyb20gIi4vY29udHJvbGxlciI7IGV4cG9ydCBjb25zdCByb3V0ZSA9IChyZXE6IGFueSkgPT4gaGFuZGxlUG9zdChyZXEpOw=='),
+      'index.ts': b64('aW1wb3J0IHsgcm91dGUgfSBmcm9tICIuL3JvdXRlciI7IGNvbnNvbGUubG9nKHJvdXRlKHsgYW1vdW50OiAxMDAsIGZlZTogMTAgfSkpOw==')
     },
     assert: async (ctx) => {
       const math = await ctx.readFile('math.ts')
@@ -1315,7 +1323,7 @@ export const DATASET_100_SCENARIOS: BenchmarkScenario[] = [
       'src/router.ts': 'export function matchRoute(pattern: string, path: string) { const regex = new RegExp("^" + pattern + "$"); return regex.test(path); }',
       'src/middleware.ts': 'export async function errorHandler(ctx: any, next: any) { try { await next(); } catch (err) { ctx.status = 500; await next(); } }',
       'src/response.ts': 'export function setHeader(res: any, key: string, val: string) { res.headers = res.headers || {}; res.headers[key] = (res.headers[key] ? res.headers[key] + "," : "") + val; }',
-      'test.ts': 'import { matchRoute } from "./src/router"; import { errorHandler } from "./src/middleware"; console.log(matchRoute("/users/:id", "/users/42"));'
+      'test.ts': b64('aW1wb3J0IHsgbWF0Y2hSb3V0ZSB9IGZyb20gIi4vc3JjL3JvdXRlciI7IGltcG9ydCB7IGVycm9ySGFuZGxlciB9IGZyb20gIi4vc3JjL21pZGRsZXdhcmUiOyBjb25zb2xlLmxvZyhtYXRjaFJvdXRlKCIvdXNlcnMvOmlkIiwgIi91c2Vycy80MiIpKTs=')
     },
     assert: async (ctx) => {
       const mw = await ctx.readFile('src/middleware.ts')
@@ -1561,8 +1569,8 @@ export const DATASET_100_SCENARIOS: BenchmarkScenario[] = [
       'src/socketPool.ts': 'const sockets: any[] = []; export function addSocket(s: any) { sockets.push(s); }',
       'src/webhook.ts': 'export function verifySignature(payload: string, sig: string, secret: string) { return sig === "valid"; }',
       'src/txLock.ts': 'export async function acquireLocks(lockA: string, lockB: string) { return true; }',
-      'src/gateway.ts': 'import { refreshToken } from "./auth"; export const handle = () => refreshToken();',
-      'src/server.ts': 'import { handle } from "./gateway"; console.log(handle());'
+      'src/gateway.ts': b64('aW1wb3J0IHsgcmVmcmVzaFRva2VuIH0gZnJvbSAiLi9hdXRoIjsgZXhwb3J0IGNvbnN0IGhhbmRsZSA9ICgpID0+IHJlZnJlc2hUb2tlbigpOw=='),
+      'src/server.ts': b64('aW1wb3J0IHsgaGFuZGxlIH0gZnJvbSAiLi9nYXRld2F5IjsgY29uc29sZS5sb2coaGFuZGxlKCkpOw==')
     },
     assert: async (ctx) => {
       const auth = await ctx.readFile('src/auth.ts')

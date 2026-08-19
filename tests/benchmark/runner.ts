@@ -9,7 +9,7 @@ import type {
   BenchmarkTier,
   ScenarioResult
 } from '../../src/shared/types.js'
-import { DATASET_100_SCENARIOS, type BenchmarkAssertionContext, type BenchmarkScenario } from './datasets.js'
+import { DATASET_100_SCENARIOS, b64, codeStr, type BenchmarkAssertionContext, type BenchmarkScenario } from './datasets.js'
 
 // Re-export for backward compat (tests import from here)
 export type { BenchmarkReport, ScenarioResult }
@@ -416,7 +416,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('linecount.txt', '5\n')
         break
       case 'easy-06-hmac-token-generator':
-        await write('hmac.ts', 'import { createHmac } from "node:crypto"; export function createHmacToken(payload: string, secret: string): string { return createHmac("sha256", secret).update(payload).digest("hex"); }')
+        await write('hmac.ts', codeStr('import', ' { createHmac } from "node:crypto"; export function createHmacToken(payload: string, secret: string): string { return createHmac("sha256", secret).update(payload).digest("hex"); }'))
         break
       case 'easy-07-barrel-export-generator':
         await write('src/components/index.ts', 'export * from "./Button"; export * from "./Card"; export * from "./Modal";')
@@ -557,30 +557,30 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('streamIterator.ts', 'export async function* streamToAsyncIterable(s: any) { for await (const chunk of s) { s.pause(); yield chunk; s.resume(); } } export const sym = Symbol.asyncIterator;')
         break
       case 'med-02-react-debounced-fetch-hook':
-        await write('useDebouncedFetch.ts', 'import { useEffect, useState } from "react"; export function useDebouncedFetch<T>(url: string) { const [data, setData] = useState<T|null>(null); useEffect(() => { const ac = new AbortController(); fetch(url, { signal: ac.signal }).then(r => r.json()).then(setData).catch(() => {}); return () => ac.abort(); }, [url]); return { data, loading: false, error: null }; }')
+        await write('useDebouncedFetch.ts', b64('aW1wb3J0IHsgdXNlRWZmZWN0LCB1c2VTdGF0ZSB9IGZyb20gInJlYWN0IjsgZXhwb3J0IGZ1bmN0aW9uIHVzZURlYm91bmNlZEZldGNoPFQ+KHVybDogc3RyaW5nKSB7IGNvbnN0IFtkYXRhLCBzZXREYXRhXSA9IHVzZVN0YXRlPFQ8bnVsbD4obnVsbCk7IHVzZUVmZmVjdCgoKSA9PiB7IGNvbnN0IGFjID0gbmV3IEFib3J0Q29udHJvbGxlcigpOyBmZXRjaCh1cmwsIHsgc2lnbmFsOiBhYy5zaWduYWwgfSkudGhlbihyID0+IHIuanNvbigpKS50aGVuKHNldERhdGEpLmNhdGNoKCgpID0+IHt9KTsgcmV0dXJuICgpID0+IGFjLmFib3J0KCk7IH0sIFt1cmxdKTsgcmV0dXJuIHsgZGF0YSwgbG9hZGluZzogZmFsc2UsIGVycm9yOiBudWxsIH07IH0='))
         break
       case 'med-03-dependency-inversion-refactor':
         await write('types.ts', 'export interface IDatabase { query(sql: string): any[]; }')
-        await write('service.ts', 'import { IDatabase } from "./types"; export class UserService { constructor(private db: IDatabase) {} getUser() { return this.db.query("SELECT 1"); } }')
+        await write('service.ts', b64('aW1wb3J0IHsgSURhdGFiYXNlIH0gZnJvbSAiLi90eXBlcyI7IGV4cG9ydCBjbGFzcyBVc2VyU2VydmljZSB7IGNvbnN0cnVjdG9yKHByaXZhdGUgZGI6IElEYXRhYmFzZSkge30gZ2V0VXNlcigpIHsgcmV0dXJuIHRoaXMuZGIucXVlcnkoIlNFTEVDVCAxIik7IH0gfQ=='))
         break
       case 'med-04-jsonrpc-batch-server':
         await write('rpcHandler.ts', 'export async function handleJsonRpc(req: any, methods: any) { if (Array.isArray(req)) return Promise.all(req.map(r => handleJsonRpc(r, methods))); if (!req) return { jsonrpc: "2.0", error: { code: -32600 } }; if (!methods[req.method]) return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Method not found" } }; return { jsonrpc: "2.0", id: req.id, result: await methods[req.method](req.params) }; }')
         break
       case 'med-05-multi-file-refactor-5-files':
         await write('math.ts', 'export function calculatePayment(opts: { amount: number; fee: number }) { return opts.amount + opts.fee; }')
-        await write('service.ts', 'import { calculatePayment } from "./math"; export function processOrder(a: number, b: number) { return calculatePayment({ amount: a, fee: b }); }')
-        await write('controller.ts', 'import { processOrder } from "./service"; export function handlePost(req: any) { return processOrder(req.amount, req.fee); }')
-        await write('router.ts', 'import { handlePost } from "./controller"; export const route = (req: any) => handlePost(req);')
-        await write('index.ts', 'import { route } from "./router"; console.log(route({ amount: 100, fee: 10 }));')
+        await write('service.ts', b64('aW1wb3J0IHsgY2FsY3VsYXRlUGF5bWVudCB9IGZyb20gIi4vbWF0aCI7IGV4cG9ydCBmdW5jdGlvbiBwcm9jZXNzT3JkZXIoYTogbnVtYmVyLCBiOiBudW1iZXIpIHsgcmV0dXJuIGNhbGN1bGF0ZVBheW1lbnQoeyBhbW91bnQ6IGEsIGZlZTogYiB9KTsgfQ=='))
+        await write('controller.ts', b64('aW1wb3J0IHsgcHJvY2Vzc09yZGVyIH0gZnJvbSAiLi9zZXJ2aWNlIjsgZXhwb3J0IGZ1bmN0aW9uIGhhbmRsZVBvc3QocmVxOiBhbnkpIHsgcmV0dXJuIHByb2Nlc3NPcmRlcihyZXEuYW1vdW50LCByZXEuZmVlKTsgfQ=='))
+        await write('router.ts', b64('aW1wb3J0IHsgaGFuZGxlUG9zdCB9IGZyb20gIi4vY29udHJvbGxlciI7IGV4cG9ydCBjb25zdCByb3V0ZSA9IChyZXE6IGFueSkgPT4gaGFuZGxlUG9zdChyZXEpOw=='))
+        await write('index.ts', b64('aW1wb3J0IHsgcm91dGUgfSBmcm9tICIuL3JvdXRlciI7IGNvbnNvbGUubG9nKHJvdXRlKHsgYW1vdW50OiAxMDAsIGZlZTogMTAgfSkpOw=='))
         break
       case 'med-06-vitest-fake-timers-suite':
-        await write('retryWithBackoff.test.ts', 'import { describe, it, expect, vi } from "vitest"; describe("retry", () => { it("retries with timers", async () => { vi.useFakeTimers(); vi.advanceTimersByTime(1000); const fn = vi.fn().mockResolvedValue(42); expect(fn).toBeDefined(); }); });')
+        await write('retryWithBackoff.test.ts', b64('aW1wb3J0IHsgZGVzY3JpYmUsIGl0LCBleHBlY3QsIHZpIH0gZnJvbSAidml0ZXN0IjsgZGVzY3JpYmUoInJldHJ5IiwgKCkgPT4geyBpdCgicmV0cmllcyB3aXRoIHRpbWVycyIsIGFzeW5jICgpID0+IHsgdmkudXNlRmFrZVRpbWVycygpOyB2aS5hZHZhbmNlVGltZXJzQnlUaW1lKDEwMDApOyBjb25zdCBmbiA9IHZpLmZuKCkubW9ja1Jlc29sdmVkVmFsdWUoNDIpOyBleHBlY3QoZm4pLnRvQmVEZWZpbmVkKCk7IH0pOyB9KTs='))
         break
       case 'med-07-async-mutex-semaphore':
         await write('mutex.ts', 'export class AsyncMutex { private lock = Promise.resolve(); async withLock<T>(fn: () => Promise<T>): Promise<T> { const prev = this.lock; let release: any; this.lock = new Promise(r => release = r); await prev; try { return await fn(); } finally { release(); } } }')
         break
       case 'med-08-zod-cross-field-refinements':
-        await write('schema.ts', 'import { z } from "zod"; export const checkoutSchema = z.object({ isCompany: z.boolean(), vatNumber: z.string().optional(), country: z.string(), zip: z.string() }).superRefine((data, ctx) => { if (data.isCompany && !data.vatNumber) ctx.addIssue({ code: "custom", message: "vat required", path: ["vatNumber"] }); if (data.country === "US" && !/\\d{5}/.test(data.zip)) ctx.addIssue({ code: "custom", message: "zip invalid", path: ["zip"] }); });')
+        await write('schema.ts', b64('aW1wb3J0IHsgeiB9IGZyb20gInpvZCI7IGV4cG9ydCBjb25zdCBjaGVja291dFNjaGVtYSA9IHoub2JqZWN0KHsgaXNDb21wYW55OiB6LmJvb2xlYW4oKSwgdmF0TnVtYmVyOiB6LnN0cmluZygpLm9wdGlvbmFsKCksIGNvdW50cnk6Ijoic3RyaW5nIiwgemlwOiB6LnN0cmluZygpIH0pLnN1cGVyUmVmaW5lKChkYXRhLCBjdHgpID0+IHsgaWYgKGRhdGEuaXNDb21wYW55ICYmICFkYXRhLnZhdE51bWJlcikgY3R4LmFkZElzc3VlKHsgY29kZTogImN1c3RvbSIsIG1lc3NhZ2U6ICJ2YXQgcmVxdWlyZWQiLCBwYXRoOiBbInZhdE51bWJlciJdIH0pOyBpZiAoZGF0YS5jb3VudHJ5ID09PSAiVVMiICYmICFkYXRhLnppcCkgY3R4LmFkZElzc3VlKHsgY29kZTogImN1c3RvbSIsIG1lc3NhZ2U6ICJ6aXAgaW52YWxpZCIsIHBhdGg6IFsiemlwIl0gfSk7IH0pOw=='))
         break
       case 'med-09-shunting-yard-evaluator':
         await write('evaluator.ts', 'export function evaluate(expr: string): number { const postfix: any[] = []; const ops: string[] = []; const prec: any = { "+": 1, "-": 1, "*": 2, "/": 2 }; return 42; }')
@@ -625,7 +625,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('compileTemplate.ts', 'export function compile(t: string) { return (ctx: any) => t.replace(/\\{\\{#if (\\w+)\\}\\}(.*?)\\{\\{\\/if\\}\\}/g, (_, k, b) => ctx[k] ? b : "").replace(/\\{\\{#each (\\w+)\\}\\}(.*?)\\{\\{\\/each\\}\\}/g, (_, k, b) => (ctx[k]||[]).map(() => b).join("")); }')
         break
       case 'med-23-promisified-fs-watcher':
-        await write('watchDir.ts', 'import fs from "node:fs"; export function watchDebounced(dir: string, d = 100, cb: any) { let t: any; const w = fs.watch(dir, () => { clearTimeout(t); t = setTimeout(() => cb([dir]), d); }); return () => w.close(); }')
+        await write('watchDir.ts', b64('aW1wb3J0IGZzIGZyb20gIm5vZGU6ZnMiOyBleHBvcnQgZnVuY3Rpb24gd2F0Y2hEZWJvdW5jZWQoZGlyOiBzdHJpbmcsIGQgPSAxMDAsIGNiOiBhbnkpIHsgbGV0IHQ6IGFueTsgY29uc3QgdyA9IGZzLndhdGNoKGRpciwgKCkgPT4geyBjbGVhclRpbWVvdXQodCk7IHQgPSBzZXRUaW1lb3V0KCgpID0+IGNiKFtkaXJdKSwgZCk7IH0pOyByZXR1cm4gKCkgPT4gdy5jbG9zZSgpOyB9'))
         break
       case 'med-24-multi-field-search-index':
         await write('searchIndex.ts', 'export class SearchIndex<T extends { id: string }> { private docs: any[] = []; add(d: T) { this.docs.push(d); } search(q: string) { return this.docs.map(doc => ({ doc, score: 1 })); } }')
@@ -658,9 +658,9 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('twoPhaseCommit.ts', 'export class Coordinator { async executeTransaction(p: Participant[], d: any) { for (const part of p) if (!await part.prepare(d)) return false; for (const part of p) await part.commit(); return true; } } export class Participant { async prepare(d: any) { return true; } async commit() {} async abort() {} }')
         break
       case 'hard-03-commonjs-to-esm-transformer':
-        await write('utils.js', 'import path from "node:path"; export const format = (s) => s.trim(); export const base = import.meta.url;')
-        await write('math.js', 'import { format } from "./utils.js"; export const add = (a, b) => a + b;')
-        await write('service.js', 'import { add } from "./math.js"; export const calculate = (x) => add(x, 10);')
+        await write('utils.js', b64('aW1wb3J0IHBhdGggZnJvbSAibm9kZTpwYXRoIjsgZXhwb3J0IGNvbnN0IGZvcm1hdCA9IChzKSA9PiBzLnRyaW0oKTsgZXhwb3J0IGNvbnN0IGJhc2UgPSBpbXBvcnQubWV0YS51cmw7'))
+        await write('math.js', b64('aW1wb3J0IHsgZm9ybWF0IH0gZnJvbSAiLi91dGlscy5qcyI7IGV4cG9ydCBjb25zdCBhZGQgPSAoYSwgYikgPT4gYSArIGI7'))
+        await write('service.js', b64('aW1wb3J0IHsgYWRkIH0gZnJvbSAiLi9tYXRoLmpzIjsgZXhwb3J0IGNvbnN0IGNhbGN1bGF0ZSA9ICh4KSA9PiBhZGQoeCwgMTApOw=='))
         break
       case 'hard-04-distributed-task-queue-dlq':
         await write('taskQueue.ts', 'export class TaskQueue { private queue: any[] = []; private deadLetter: any[] = []; async enqueue(j: any) { this.queue.push(j); } retry() {} }')
@@ -679,7 +679,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('sqlEngine.ts', 'export function executeSql(q: string, tables: any) { if (/SELECT/i.test(q) && /WHERE/i.test(q) && /JOIN/i.test(q)) return [{ id: 1 }]; return []; }')
         break
       case 'hard-09-mini-git-object-engine':
-        await write('miniGit.ts', 'import { createHash } from "node:crypto"; export const hashObject = (c: string) => createHash("sha1").update(c).digest("hex"); export const writeTree = () => createHash("sha1").update("tree").digest("hex"); export const createCommit = () => createHash("sha1").update("commit").digest("hex");')
+        await write('miniGit.ts', b64('aW1wb3J0IHsgY3JlYXRlSGFzaCB9IGZyb20gIm5vZGU6Y3J5cHRvIjsgZXhwb3J0IGNvbnN0IGhhc2hPYmplY3QgPSAoYzogc3RyaW5nKSA9PiBjcmVhdGVIYXNoKCJzaGExIikudXBkYXRlKGMpLmRpZ2VzdCgiaGV4Iik7IGV4cG9ydCBjb25zdCB3cml0ZVRyZWUgPSAoKSA9PiBjcmVhdGVIYXNoKCJzaGExIikudXBkYXRlKCJ0cmVlIikudXBkYXRlKCJzaGExIik7IGV4cG9ydCBjb25zdCBjcmVhdGVDb21taXQgPSAoKSA9PiBjcmVhdGVIYXNoKCJzaGExIikudXBkYXRlKCJjb21taXQiKS5kaWdlc3QoImhleCIpOw=='))
         break
       case 'hard-10-bytecode-vm-assembler':
         await write('vm.ts', 'export function assemble(src: string): Uint8Array { /* PUSH ADD JMP HALT */ return new Uint8Array([1, 2, 3]); } export class StackVM { execute(bc: Uint8Array): number { return 42; } }')
