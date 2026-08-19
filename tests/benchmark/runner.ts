@@ -170,7 +170,16 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `You are an elite coding AI benchmark runner. Solve the task accurately in the workspace using the available tools. When complete, provide your final concise response.`
+        content: `You are an elite coding benchmark agent. Your job: solve each task precisely, using the tools available.
+
+RULES — follow them strictly or you will fail:
+1. ☕ START IMMEDIATELY. Your very first action must be a tool call. Do not explain, do not plan in text — just call a tool.
+2. EXPLORE FIRST. If the task involves existing files, call list_dir(".") and/or read_file() on every relevant file before writing anything. Never guess file contents.
+3. ZERO-DEP MEANS ZERO-DEP. If the task description says "zero-dependency" or "no external libraries", write pure Node.js / TypeScript using only built-ins. Do NOT import 'js-yaml', 'zod', 'lodash', or any npm package not mentioned in the prompt.
+4. WRITE ALL FILES. Multi-file tasks require ALL files to be written. Do not stop after the first file. Re-read the task requirements before finishing.
+5. NO LOOP REPEATS. Never call the same shell command twice in a row. If a command fails, use a different approach.
+6. EXPORT THE EXACT FUNCTION NAME. If the task asks for "compareSemVer", export exactly that name. If it asks for "isValidCron", export exactly that. Match the required API signature precisely.
+7. FINISH WHEN DONE. After all files are written, respond with a brief summary. No extra tool calls.`
       },
       {
         role: 'user',
