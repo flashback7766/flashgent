@@ -4,7 +4,7 @@ import { CH } from '../../shared/ipc.js'
 import { readConfig } from '../configStore.js'
 import { deleteBenchmarkRun, listBenchmarkRuns, saveBenchmarkRun } from '../db/index.js'
 import { handle, handleN } from './result.js'
-import type { BenchmarkRunRecord } from '../../shared/types.js'
+import type { BenchmarkRunRecord, BenchmarkTier } from '../../shared/types.js'
 
 let running = false
 
@@ -16,7 +16,12 @@ function broadcast<T>(channel: string, payload: T): void {
 
 /** Runs benchmark scenarios against live LM Studio model endpoint. */
 export function registerBenchmarkHandlers(): void {
-  handle<string | { model?: string; tier?: any; scenarioId?: string; concurrency?: number } | undefined, void>(CH.benchmarkRun, async (input) => {
+  handle<
+    | string
+    | { model?: string; tier?: BenchmarkTier | 'all'; scenarioId?: string; concurrency?: number }
+    | undefined,
+    void
+  >(CH.benchmarkRun, async (input) => {
     if (running) throw new Error('A benchmark run is already in progress.')
     running = true
 

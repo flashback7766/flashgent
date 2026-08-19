@@ -163,7 +163,11 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
   ]
 
   return async (scenario, ctx) => {
-    const messages: Array<{ role: string; content?: string | null; tool_calls?: any[]; tool_call_id?: string }> = [
+    interface ChatToolCall { id: string; function: { name: string; arguments: string } }
+    interface ChatMessage { role: string; content?: string | null; tool_calls?: ChatToolCall[]; tool_call_id?: string }
+    interface ChatCompletionResponse { choices?: Array<{ message: ChatMessage }> }
+
+    const messages: ChatMessage[] = [
       {
         role: 'system',
         content: `You are an elite coding AI benchmark runner. Solve the task accurately in the workspace using the available tools. When complete, provide your final concise response.`
@@ -204,7 +208,7 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
         throw new Error(`LLM call failed with status ${res.status}: ${await res.text()}`)
       }
 
-      const data = (await res.json()) as any
+      const data = (await res.json()) as ChatCompletionResponse
       const choice = data.choices?.[0]?.message
       if (!choice) break
 
@@ -436,7 +440,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('report.txt', 'Circular cycle detected between a.ts and b.ts.')
         break
       case 'easy-14-strict-semver-regex':
-        await write('semver.ts', 'export const SEMVER_REGEX = /^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+([0-9A-Za-z.-]+))?$/;')
+        await write('semver.ts', 'export const SEMVER_REGEX = /^\\d+\\.\\d+\\.\\d+/;')
         break
       case 'easy-15-markdown-matrix-generator':
         await write('summary.md', '# Summary\n\n| Metric | Value | Status |\n|---|---|---|\n| Latency | 45ms | Optimal |\n')
@@ -475,7 +479,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('multipart.ts', 'export function extractBoundary(ct: string): string | null { const m = ct.match(/boundary=([^;]+)/i); return m ? m[1].trim().replace(/^"|"$/g, "") : null; }')
         break
       case 'easy-27-uuid-v4-validator':
-        await write('uuid.ts', 'export function isUuidV4(s: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s); }')
+        await write('uuid.ts', 'export function isUuidV4(s: string): boolean { return /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}/.test(s); }')
         break
       case 'easy-28-exponential-backoff-jitter':
         await write('backoff.ts', 'export function calculateBackoff(attempt: number, base = 100, max = 5000): number { const exp = Math.min(max, base * Math.pow(2, attempt)); return Math.floor(Math.random() * exp); }')
@@ -535,13 +539,13 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('slugify.ts', 'export function slugify(t: string) { return t.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }')
         break
       case 'easy-47-memory-usage-formatter':
-        await write('memory.ts', 'export function getMemoryStats() { const m = process.memoryUsage(); return { heapUsedMb: m.heapUsed / 1048576, heapTotalMb: m.heapTotal / 1048576, rssMb: m.rss / 1048576 }; }')
+        await write('memory.ts', 'export function getMemoryStats() { const m = process.memoryUsage(); const d = 1024 * 1024; return { heapUsedMb: m.heapUsed / d, heapTotalMb: m.heapTotal / d, rssMb: m.rss / d }; }')
         break
       case 'easy-48-cli-arg-parser':
         await write('parseArgs.ts', 'export function parseCliArgs(args: string[]) { const flags: Record<string, any> = {}, positional: string[] = []; args.forEach(a => { if (a.startsWith("--")) { const [k, v] = a.slice(2).split("="); flags[k] = v ?? true; } else positional.push(a); }); return { flags, positional }; }')
         break
       case 'easy-49-string-template-interpolator':
-        await write('template.ts', 'export function renderTemplate(t: string, data: any) { return t.replace(/\\{\\{([^}]+)\\}\\}/g, (_, k) => data[k.trim()] ?? ""); }')
+        await write('template.ts', 'export function renderTemplate(t: string, data: any) { return t.replace(/{{([^}]+)}}/g, (_, k) => data[k.trim()] ?? ""); }')
         break
       case 'easy-50-unified-diff-generator':
         await write('diff.ts', 'export function generateUnifiedDiff(f: string, oldT: string, newT: string) { return `--- a/${f}\\n+++ b/${f}\\n@@ -1,1 +1,1 @@\\n-${oldT}\\n+${newT}`; }')
@@ -560,7 +564,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('service.ts', 'import { IDatabase } from "./types"; export class UserService { constructor(private db: IDatabase) {} getUser() { return this.db.query("SELECT 1"); } }')
         break
       case 'med-04-jsonrpc-batch-server':
-        await write('rpcHandler.ts', 'export async function handleJsonRpc(req: any, methods: any) { if (Array.isArray(req)) return Promise.all(req.map(r => handleJsonRpc(r, methods))); if (!methods[req.method]) return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Method not found" } }; return { jsonrpc: "2.0", id: req.id, result: await methods[req.method](req.params) }; }')
+        await write('rpcHandler.ts', 'export async function handleJsonRpc(req: any, methods: any) { if (Array.isArray(req)) return Promise.all(req.map(r => handleJsonRpc(r, methods))); if (!req) return { jsonrpc: "2.0", error: { code: -32600 } }; if (!methods[req.method]) return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Method not found" } }; return { jsonrpc: "2.0", id: req.id, result: await methods[req.method](req.params) }; }')
         break
       case 'med-05-multi-file-refactor-5-files':
         await write('math.ts', 'export function calculatePayment(opts: { amount: number; fee: number }) { return opts.amount + opts.fee; }')
@@ -570,7 +574,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('index.ts', 'import { route } from "./router"; console.log(route({ amount: 100, fee: 10 }));')
         break
       case 'med-06-vitest-fake-timers-suite':
-        await write('retryWithBackoff.test.ts', 'import { describe, it, expect, vi } from "vitest"; describe("retry", () => { it("retries with timers", async () => { vi.useFakeTimers(); const fn = vi.fn().mockRejectedValueOnce(new Error()).mockResolvedValue(42); expect(fn).toBeDefined(); }); });')
+        await write('retryWithBackoff.test.ts', 'import { describe, it, expect, vi } from "vitest"; describe("retry", () => { it("retries with timers", async () => { vi.useFakeTimers(); vi.advanceTimersByTime(1000); const fn = vi.fn().mockResolvedValue(42); expect(fn).toBeDefined(); }); });')
         break
       case 'med-07-async-mutex-semaphore':
         await write('mutex.ts', 'export class AsyncMutex { private lock = Promise.resolve(); async withLock<T>(fn: () => Promise<T>): Promise<T> { const prev = this.lock; let release: any; this.lock = new Promise(r => release = r); await prev; try { return await fn(); } finally { release(); } } }')
@@ -615,7 +619,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('tlv.ts', 'export function encodeTLV(tag: number, val: Buffer) { const buf = Buffer.alloc(3 + val.length); buf.writeUInt8(tag, 0); buf.writeUInt16BE(val.length, 1); val.copy(buf, 3); return buf; } export function decodeTLV(buf: Buffer) { return [{ tag: buf.readUInt8(0), value: buf.subarray(3) }]; }')
         break
       case 'med-21-dijkstra-graph-search':
-        await write('dijkstra.ts', 'export function findShortestPath(g: any, s: string, e: string) { return { path: [s, e], distance: 10 }; }')
+        await write('dijkstra.ts', 'export function findShortestPath(g: any, s: string, e: string) { const visited = new Set(); return { path: [s, e], distance: 10 }; }')
         break
       case 'med-22-micro-template-compiler':
         await write('compileTemplate.ts', 'export function compile(t: string) { return (ctx: any) => t.replace(/\\{\\{#if (\\w+)\\}\\}(.*?)\\{\\{\\/if\\}\\}/g, (_, k, b) => ctx[k] ? b : "").replace(/\\{\\{#each (\\w+)\\}\\}(.*?)\\{\\{\\/each\\}\\}/g, (_, k, b) => (ctx[k]||[]).map(() => b).join("")); }')
@@ -630,7 +634,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('jsonPatch.ts', 'export function applyPatch(doc: any, patches: any[]) { patches.forEach(p => { if (p.op === "add") doc[p.path.replace("/", "")] = p.value; if (p.op === "remove") delete doc[p.path.replace("/", "")]; if (p.op === "replace") doc[p.path.replace("/", "")] = p.value; }); return doc; }')
         break
       case 'med-26-event-listener-leak-detector':
-        await write('leakDetector.ts', 'export function trackEmitter(em: any, max = 10) { const counts: any = {}; em.on = (e: string, fn: any) => { counts[e] = (counts[e]||0)+1; }; return { getActiveCounts: () => counts, stop: () => {} }; }')
+        await write('leakDetector.ts', 'export function trackEmitter(em: any, max = 10) { const counts: any = {}; em.addListener = em.on = (e: string, fn: any) => { counts[e] = (counts[e]||0)+1; }; return { getActiveCounts: () => counts, stop: () => {} }; }')
         break
       case 'med-27-virtualized-list-calculator':
         await write('virtualList.ts', 'export function computeVirtualWindow({ scrollTop, containerHeight, itemHeight, totalCount, overscan = 2 }: any) { const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan); const endIndex = Math.min(totalCount, Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan); return { startIndex, endIndex, offsetY: startIndex * itemHeight, totalHeight: totalCount * itemHeight }; }')
@@ -642,13 +646,13 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('wizard.ts', 'export class Wizard<T extends Record<string, any>> { private steps: any[] = []; private answers: any = {}; addStep(k: any, v: any) { this.steps.push({ k, v }); } next(val: any) { const s = this.steps.shift(); if (s) this.answers[s.k] = val; } back() {} getAnswers() { return this.answers; } }')
         break
       case 'med-30-vitest-custom-matcher-extension':
-        await write('matchers.ts', 'export function toBeWithinRange(rec: number, min: number, max: number) { const pass = rec >= min && rec <= max; return { pass, message: () => `expected ${rec} in [${min}, ${max}]` }; }')
+        await write('matchers.ts', 'export function toBeWithinRange(rec: number, min: number, max: number) { const pass = rec >= min && rec <= max; return { pass: pass, message: () => `expected ${rec} in [${min}, ${max}]` }; }')
         break
     }
   } else if (scenario.id.startsWith('hard-')) {
     switch (scenario.id) {
       case 'hard-01-mini-lsm-storage-engine':
-        await write('lsmTree.ts', 'export class LSMTree { constructor(private dir: string) {} async put(k: string, v: string) { /* append to wal.log */ } async get(k: string) { return "val"; } async recover() {} }')
+        await write('lsmTree.ts', 'export class LSMTree { constructor(private dir: string) {} async put(k: string, v: string) { /* wal.log sstable */ } async get(k: string) { return "val"; } async recover() {} }')
         break
       case 'hard-02-two-phase-commit-consensus':
         await write('twoPhaseCommit.ts', 'export class Coordinator { async executeTransaction(p: Participant[], d: any) { for (const part of p) if (!await part.prepare(d)) return false; for (const part of p) await part.commit(); return true; } } export class Participant { async prepare(d: any) { return true; } async commit() {} async abort() {} }')
@@ -659,14 +663,14 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('service.js', 'import { add } from "./math.js"; export const calculate = (x) => add(x, 10);')
         break
       case 'hard-04-distributed-task-queue-dlq':
-        await write('taskQueue.ts', 'export class TaskQueue { private queue: any[] = []; private deadLetter: any[] = []; async enqueue(j: any) { this.queue.push(j); } }')
+        await write('taskQueue.ts', 'export class TaskQueue { private queue: any[] = []; private deadLetter: any[] = []; async enqueue(j: any) { this.queue.push(j); } retry() {} }')
         break
       case 'hard-05-self-healing-router-bug-hunt':
         await write('src/router.ts', 'export function matchRoute(pattern: string, path: string) { const p = pattern.replace(/:([a-zA-Z0-9_]+)/g, "([^/]+)"); return new RegExp("^" + p + "$").test(path); }')
         await write('src/middleware.ts', 'export async function errorHandler(ctx: any, next: any) { try { await next(); } catch (err) { ctx.status = 500; } }')
         break
       case 'hard-06-ast-code-linter-fixer':
-        await write('linter.ts', 'export function lintAndFix(code: string) { const fixedCode = code.replace(/console\\.log\\(.*?\\);?/g, "").replace(/:\\s*any\\b/g, ": unknown"); return { fixedCode, issuesFound: 2 }; }')
+        await write('linter.ts', '// removes console.log\nexport function lintAndFix(code: string) { const fixedCode = code.replace(/any/g, "unknown"); return { fixedCode, issuesFound: 2 }; }')
         break
       case 'hard-07-b-tree-indexing-engine':
         await write('btree.ts', 'export class BTree<K, V> { private root: any = { keys: [], children: [] }; insert(k: K, val: V) { /* node split logic */ } search(k: K): V | undefined { return undefined; } }')
@@ -678,7 +682,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('miniGit.ts', 'import { createHash } from "node:crypto"; export const hashObject = (c: string) => createHash("sha1").update(c).digest("hex"); export const writeTree = () => createHash("sha1").update("tree").digest("hex"); export const createCommit = () => createHash("sha1").update("commit").digest("hex");')
         break
       case 'hard-10-bytecode-vm-assembler':
-        await write('vm.ts', 'export function assemble(src: string): Uint8Array { return new Uint8Array([1, 2, 3]); } export class StackVM { execute(bc: Uint8Array): number { return 42; } }')
+        await write('vm.ts', 'export function assemble(src: string): Uint8Array { /* PUSH ADD JMP HALT */ return new Uint8Array([1, 2, 3]); } export class StackVM { execute(bc: Uint8Array): number { return 42; } }')
         break
       case 'hard-11-crdt-replicated-text':
         await write('crdtText.ts', 'export class CRDTDoc { constructor(public siteId: string) {} insert(c: string, idx: number) { return { siteId: this.siteId, c, idx }; } applyRemote(op: any) {} getText() { return "hello"; } }')
@@ -703,7 +707,7 @@ async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAsser
         await write('sqlEngine.ts', 'export class RelationalDatabase { private bplusTree = new Map(); execute(sql: string) { if (/BEGIN|COMMIT|ROLLBACK/i.test(sql)) return []; if (/CREATE|INSERT|SELECT|UPDATE|DELETE/i.test(sql)) return [{ id: 1 }]; return []; } }')
         break
       case 'hell-02-scheme-lisp-compiler-tco-vm':
-        await write('lispVM.ts', 'export function compileScheme(src: string) { return new Uint8Array([1, 2, 3]); } export class SchemeVM { run(bc: Uint8Array) { /* TCO loop */ return 42; } }')
+        await write('lispVM.ts', 'export function compileScheme(src: string) { /* lambda define quote */ return new Uint8Array([1, 2, 3]); } export class SchemeVM { run(bc: Uint8Array) { /* TCO loop */ return 42; } }')
         break
       case 'hell-03-raft-consensus-cluster-simulator':
         await write('raft.ts', 'export class RaftNode { private state: "Follower"|"Candidate"|"Leader" = "Follower"; RequestVote() {} AppendEntries() {} InstallSnapshot() {} }')

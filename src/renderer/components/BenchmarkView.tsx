@@ -66,7 +66,7 @@ export function BenchmarkView(): React.ReactElement {
     try {
       const res = await window.flashgent.benchmark.run({
         model: selectedModel || undefined,
-        tier: selectedTier,
+        tier: selectedTier as BenchmarkTier | 'all',
         scenarioId: targetScenarioId,
         concurrency
       })
@@ -138,7 +138,7 @@ export function BenchmarkView(): React.ReactElement {
             <span className="text-[11px] uppercase font-semibold text-faint">Scope:</span>
             <select
               value={selectedTier}
-              onChange={(e) => setSelectedTier(e.target.value as any)}
+              onChange={(e) => setSelectedTier(e.target.value as BenchmarkTier | 'all')}
               disabled={running}
               className="bg-transparent font-semibold text-ink outline-none cursor-pointer"
             >
