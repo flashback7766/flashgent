@@ -16,16 +16,17 @@ function broadcast<T>(channel: string, payload: T): void {
 
 /** Runs benchmark scenarios against live LM Studio model endpoint. */
 export function registerBenchmarkHandlers(): void {
-  handle<string | undefined, void>(CH.benchmarkRun, async (modelName) => {
+  handle<string | { model?: string; tier?: any; scenarioId?: string; concurrency?: number } | undefined, void>(CH.benchmarkRun, async (input) => {
     if (running) throw new Error('A benchmark run is already in progress.')
     running = true
 
     try {
+      const opts = typeof input === 'string' ? { model: input } : input
       const config = readConfig()
       const endpoint =
         config.endpoints.find((e) => e.id === config.activeEndpointId) ?? config.endpoints[0]
       const baseUrl = endpoint?.baseUrl ?? 'http://localhost:1234/v1'
-      const targetModel = modelName || config.lastModel || 'Local-LLM'
+      const targetModel = opts?.model || config.lastModel || 'Local-LLM'
 
       const evaluator = createLlmEvaluator({
         baseUrl,
@@ -34,6 +35,10 @@ export function registerBenchmarkHandlers(): void {
 
       const report = await runBenchmark(targetModel, evaluator, (progress) => {
         broadcast(CH.evtBenchmarkProgress, progress)
+      }, {
+        tier: opts?.tier,
+        scenarioId: opts?.scenarioId,
+        concurrency: opts?.concurrency
       })
 
       // Persist run in database for historical leaderboards

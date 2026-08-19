@@ -448,7 +448,7 @@ export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 // --- Benchmark -------------------------------------------------------------
 
-export type BenchmarkTier = 'easy' | 'medium' | 'hard'
+export type BenchmarkTier = 'easy' | 'medium' | 'hard' | 'hell'
 
 export interface ScenarioResult {
   id: string
@@ -472,6 +472,7 @@ export interface BenchmarkSummary {
   easy: { passed: number; total: number; score: number; max: number }
   medium: { passed: number; total: number; score: number; max: number }
   hard: { passed: number; total: number; score: number; max: number }
+  hell: { passed: number; total: number; score: number; max: number }
 }
 
 /**
@@ -483,6 +484,8 @@ export interface BenchmarkReport {
   modelName: string
   totalScore: number
   maxScore: number
+  rawScore?: number
+  rawMaxScore?: number
   percentage: number
   summary: BenchmarkSummary
   qualityModifiers: BenchmarkQualityScore

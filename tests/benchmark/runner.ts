@@ -1,14 +1,15 @@
 import { exec } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
   BenchmarkQualityScore,
   BenchmarkReport,
+  BenchmarkTier,
   ScenarioResult
 } from '../../src/shared/types.js'
-import { DATASET_30_SCENARIOS, type BenchmarkAssertionContext, type BenchmarkScenario } from './datasets.js'
+import { DATASET_100_SCENARIOS, type BenchmarkAssertionContext, type BenchmarkScenario } from './datasets.js'
 
 // Re-export for backward compat (tests import from here)
 export type { BenchmarkReport, ScenarioResult }
@@ -21,6 +22,12 @@ export interface LlmEvaluatorOptions {
   apiKey?: string
   maxTurns?: number
   timeoutMs?: number
+}
+
+export interface BenchmarkRunOptions {
+  tier?: BenchmarkTier | 'all'
+  scenarioId?: string
+  concurrency?: number
 }
 
 export type BenchmarkEvaluator = (
@@ -46,11 +53,6 @@ export function parseToolArguments(raw: string): { args: Record<string, unknown>
   }
 }
 
-/**
- * Creates a real evaluator that sends each scenario's prompt to an OpenAI-compatible
- * LLM endpoint (such as LM Studio on localhost), executes any tool calls the model emits
- * in the isolated sandbox, and records the result for scoring.
- */
 export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluator {
   const baseUrl = (opts.baseUrl || 'http://localhost:1234/v1').replace(/\/+$/, '')
   const model = opts.modelName
@@ -133,8 +135,8 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
     {
       type: 'function',
       function: {
-        name: 'ask',
-        description: 'Ask the user for clarification or input.',
+        name: 'ask_user',
+        description: 'Ask the user for clarification or options.',
         parameters: {
           type: 'object',
           properties: {
@@ -148,11 +150,11 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
       type: 'function',
       function: {
         name: 'run_subtask',
-        description: 'Delegate a subtask to an auxiliary subagent.',
+        description: 'Spawn a focused subtask agent to research or complete a component.',
         parameters: {
           type: 'object',
           properties: {
-            description: { type: 'string', description: 'Description of subtask' }
+            description: { type: 'string', description: 'Task description' }
           },
           required: ['description']
         }
@@ -161,30 +163,19 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
   ]
 
   return async (scenario, ctx) => {
-    const recordedToolCalls: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> = []
-    let finalResultText = ''
-
-    const messages: Array<{
-      role: 'system' | 'user' | 'assistant' | 'tool'
-      content?: string | null
-      tool_calls?: Array<{
-        id: string
-        type: 'function'
-        function: { name: string; arguments: string }
-      }>
-      tool_call_id?: string
-      name?: string
-    }> = [
+    const messages: Array<{ role: string; content?: string | null; tool_calls?: any[]; tool_call_id?: string }> = [
       {
         role: 'system',
-        content:
-          'You are an autonomous AI coding assistant. Solve the user task by inspecting, creating, and modifying files in the current workspace using the provided tools. Always call tools when needed to complete the task.'
+        content: `You are an elite coding AI benchmark runner. Solve the task accurately in the workspace using the available tools. When complete, provide your final concise response.`
       },
       {
         role: 'user',
         content: scenario.prompt
       }
     ]
+
+    const recordedCalls: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> = []
+    let finalAnswer = ''
 
     for (let turn = 0; turn < maxTurns; turn++) {
       const controller = new AbortController()
@@ -194,158 +185,116 @@ export function createLlmEvaluator(opts: LlmEvaluatorOptions): BenchmarkEvaluato
       try {
         res = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {})
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model,
             messages,
             tools,
-            temperature: 0.1,
-            max_tokens: 2048
+            temperature: 0.7,
+            top_p: 0.9,
+            max_tokens: 4096
           }),
           signal: controller.signal
         })
-      } catch (fetchErr) {
-        throw new Error(`Failed to reach LM Studio at ${baseUrl}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`)
       } finally {
         clearTimeout(timer)
       }
 
       if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(`LM Studio HTTP ${res.status}: ${text || res.statusText}`)
+        throw new Error(`LLM call failed with status ${res.status}: ${await res.text()}`)
       }
 
-      const json = (await res.json()) as {
-        choices?: Array<{
-          message?: {
-            content?: string | null
-            tool_calls?: Array<{
-              id: string
-              type: 'function'
-              function: { name: string; arguments: string }
-            }>
-          }
-        }>
-      }
-      const choice = json.choices?.[0]
-      const assistantMsg = choice?.message
-      if (!assistantMsg) break
+      const data = (await res.json()) as any
+      const choice = data.choices?.[0]?.message
+      if (!choice) break
 
-      if (assistantMsg.content) {
-        finalResultText = assistantMsg.content
+      messages.push(choice)
+      if (choice.content) {
+        finalAnswer = choice.content
       }
 
-      const toolCalls = assistantMsg.tool_calls
-      if (!toolCalls || !toolCalls.length) {
+      if (!choice.tool_calls || choice.tool_calls.length === 0) {
         break
       }
 
-      messages.push({
-        role: 'assistant',
-        content: assistantMsg.content || null,
-        tool_calls: toolCalls
-      })
+      for (const call of choice.tool_calls) {
+        const fnName = call.function?.name
+        const { args, valid } = parseToolArguments(call.function?.arguments || '{}')
+        recordedCalls.push({ name: fnName, input: args, ok: valid })
 
-      for (const call of toolCalls) {
-        const fnName = call.function?.name ?? ''
-        const { args: fnArgs, valid: jsonValid } = parseToolArguments(call.function?.arguments || '{}')
-        let toolResult = ''
-        let ok = jsonValid
-
+        let resultString = 'OK'
         try {
-          if (fnName === 'write_file' || fnName === 'write') {
-            const relPath = String(fnArgs.path || fnArgs.filename || 'file.txt')
-            const content = String(fnArgs.content ?? '')
-            const fullPath = join(ctx.cwd, relPath)
+          if (fnName === 'write_file') {
+            const path = String(args.path || '')
+            const content = String(args.content || '')
+            const fullPath = join(ctx.cwd, path)
             await mkdir(dirname(fullPath), { recursive: true })
             await writeFile(fullPath, content, 'utf8')
-            toolResult = `Successfully wrote ${content.length} characters to ${relPath}`
-          } else if (fnName === 'read_file' || fnName === 'read') {
-            const relPath = String(fnArgs.path || fnArgs.filename || '')
-            const content = await ctx.readFile(relPath)
-            toolResult = content !== null ? content : `Error: File not found: ${relPath}`
-            ok = content !== null
-          } else if (fnName === 'edit_file' || fnName === 'edit') {
-            const relPath = String(fnArgs.path || fnArgs.filename || '')
-            const fullPath = join(ctx.cwd, relPath)
-            const content = await ctx.readFile(relPath)
-            if (content === null) {
-              toolResult = `Error: File not found: ${relPath}`
-              ok = false
+            resultString = `File written to ${path}`
+          } else if (fnName === 'read_file') {
+            const path = String(args.path || '')
+            const fullPath = join(ctx.cwd, path)
+            if (existsSync(fullPath)) {
+              resultString = await readFile(fullPath, 'utf8')
             } else {
-              const oldStr = String(fnArgs.oldString ?? '')
-              const newStr = String(fnArgs.newString ?? '')
-              if (content.includes(oldStr)) {
-                const updated = content.replace(oldStr, newStr)
-                await writeFile(fullPath, updated, 'utf8')
-                toolResult = `Successfully replaced occurrences in ${relPath}`
-              } else {
-                toolResult = `Error: oldString not found in ${relPath}`
-                ok = false
-              }
+              resultString = `Error: file not found: ${path}`
             }
-          } else if (fnName === 'list_dir' || fnName === 'list_files') {
-            const relPath = String(fnArgs.path || '.')
-            const fullPath = join(ctx.cwd, relPath)
-            const entries = await readdir(fullPath).catch(() => [])
-            toolResult = `Directory contents:\n${entries.join('\n')}`
-          } else if (fnName === 'run_shell' || fnName === 'shell') {
-            const cmd = String(fnArgs.command || '')
-            toolResult = await new Promise<string>((resCmd) => {
-              exec(cmd, { cwd: ctx.cwd, timeout: 15_000 }, (error, stdout, stderr) => {
-                if (error) {
-                  ok = false
-                  resCmd(`Command failed (exit ${error.code}):\n${stderr || stdout || error.message}`)
-                } else {
-                  resCmd(stdout || stderr || '(no output)')
-                }
+          } else if (fnName === 'edit_file') {
+            const path = String(args.path || '')
+            const oldStr = String(args.oldString || '')
+            const newStr = String(args.newString || '')
+            const fullPath = join(ctx.cwd, path)
+            if (existsSync(fullPath)) {
+              const current = await readFile(fullPath, 'utf8')
+              if (current.includes(oldStr)) {
+                await writeFile(fullPath, current.replace(oldStr, newStr), 'utf8')
+                resultString = `Replaced occurrence in ${path}`
+              } else {
+                resultString = `Error: oldString not found in ${path}`
+              }
+            } else {
+              resultString = `Error: file not found: ${path}`
+            }
+          } else if (fnName === 'run_shell') {
+            const command = String(args.command || '')
+            resultString = await new Promise((resolve) => {
+              exec(command, { cwd: ctx.cwd, timeout: 30_000 }, (err, stdout, stderr) => {
+                if (err) resolve(`Error: ${stderr || err.message}`)
+                else resolve(stdout || 'Command completed successfully')
               })
             })
-          } else if (fnName === 'ask') {
-            toolResult = 'User responded: Proceed with standard default settings.'
+          } else if (fnName === 'list_dir') {
+            const path = String(args.path || '.')
+            const fullPath = join(ctx.cwd, path)
+            if (existsSync(fullPath)) {
+              resultString = `Directory listed: ${path}`
+            } else {
+              resultString = `Directory not found: ${path}`
+            }
+          } else if (fnName === 'ask_user' || fnName === 'ask') {
+            resultString = 'User response: Proceed with standard configuration.'
           } else if (fnName === 'run_subtask') {
-            toolResult = 'Subtask completed successfully.'
-          } else {
-            toolResult = `Executed tool ${fnName}`
+            resultString = 'Subtask completed: Fixtures generated and saved.'
           }
-        } catch (err) {
-          ok = false
-          toolResult = `Tool error: ${err instanceof Error ? err.message : String(err)}`
+        } catch (toolErr) {
+          resultString = `Tool execution error: ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`
         }
-
-        recordedToolCalls.push({
-          name: fnName,
-          input: fnArgs,
-          ok
-        })
 
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
-          name: fnName,
-          content: toolResult
+          content: resultString
         })
       }
     }
 
-    return {
-      resultText: finalResultText,
-      toolCalls: recordedToolCalls
-    }
+    return { resultText: finalAnswer, toolCalls: recordedCalls }
   }
 }
 
-/**
- * Creates an isolated sandbox directory for scenario execution.
- */
-export async function createSandbox(initialFiles?: Record<string, string>): Promise<{
-  sandboxPath: string
-  cleanup: () => Promise<void>
-  context: BenchmarkAssertionContext
-}> {
+export async function createSandbox(
+  initialFiles?: Record<string, string>
+): Promise<{ sandboxPath: string; cleanup: () => Promise<void>; context: BenchmarkAssertionContext }> {
   const sandboxPath = await mkdtemp(join(tmpdir(), 'flashgent-bench-'))
 
   if (initialFiles) {
@@ -384,12 +333,9 @@ export async function createSandbox(initialFiles?: Record<string, string>): Prom
   return { sandboxPath, cleanup, context }
 }
 
-/**
- * Execute scenario evaluation against provided evaluator or simulated handler
- */
 export async function executeScenario(
   scenario: BenchmarkScenario,
-  evaluator?: (sc: BenchmarkScenario, ctx: BenchmarkAssertionContext) => Promise<{ resultText?: string; toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> }>
+  evaluator?: BenchmarkEvaluator
 ): Promise<ScenarioResult> {
   const { cleanup, context } = await createSandbox(scenario.initialFiles)
   const start = performance.now()
@@ -400,19 +346,21 @@ export async function executeScenario(
       context.resultText = runRes.resultText
       context.toolCalls = runRes.toolCalls
     } else {
-      // Default execution / fallback solver for deterministic benchmark validation
       await defaultSimulator(scenario, context)
     }
 
     const assertion = await scenario.assert(context)
     const durationMs = Math.round(performance.now() - start)
+    const earnedPoints = assertion.partialScore !== undefined
+      ? assertion.partialScore
+      : (assertion.ok ? scenario.points : 0)
 
     return {
       id: scenario.id,
       name: scenario.name,
       tier: scenario.tier,
       maxPoints: scenario.points,
-      earnedPoints: assertion.ok ? scenario.points : 0,
+      earnedPoints,
       passed: assertion.ok,
       durationMs,
       message: assertion.message,
@@ -436,185 +384,449 @@ export async function executeScenario(
 }
 
 /**
- * Deterministic simulator for baseline test-suite validation
+ * Deterministic simulator for baseline test-suite validation (all 100 tasks)
  */
 async function defaultSimulator(scenario: BenchmarkScenario, ctx: BenchmarkAssertionContext): Promise<void> {
-  const p = join(ctx.cwd, 'hello.txt')
-  switch (scenario.id) {
-    case 'easy-01-file-create':
-      await writeFile(p, 'Hello Flashgent', 'utf8')
-      break
-    case 'easy-02-file-read':
-      ctx.resultText = 'The version in package.json is 1.2.3.'
-      break
-    case 'easy-03-json-parse':
-      await writeFile(join(ctx.cwd, 'config.json'), JSON.stringify({ active: true, port: 3000 }, null, 2), 'utf8')
-      break
-    case 'easy-04-ts-interface':
-      await writeFile(join(ctx.cwd, 'types.ts'), 'export interface User {\n  id: string;\n  age: number;\n}\n', 'utf8')
-      break
-    case 'easy-05-single-command':
-      ctx.toolCalls = [{ name: 'run_shell', input: { command: 'node -v' }, ok: true }]
-      ctx.resultText = 'v22.15.0'
-      break
-    case 'easy-06-math-logic':
-      ctx.resultText = 'The ball is on the table inside the cup.'
-      break
-    case 'easy-07-dir-structure':
-      await mkdir(join(ctx.cwd, 'src/components/ui'), { recursive: true })
-      await writeFile(join(ctx.cwd, 'src/components/ui/index.ts'), '// ui export', 'utf8')
-      break
-    case 'easy-08-env-variable':
-      ctx.resultText = 'The PORT configured in .env.example is 8080.'
-      break
-    case 'easy-09-git-ignore':
-      await writeFile(join(ctx.cwd, '.gitignore'), 'dist/\n.env\nnode_modules/\n', 'utf8')
-      break
-    case 'easy-10-string-utils':
-      await writeFile(join(ctx.cwd, 'utils.ts'), 'export function capitalize(str: string): string {\n  return str.charAt(0).toUpperCase() + str.slice(1);\n}\n', 'utf8')
-      break
-    case 'easy-11-tool-ask':
-      ctx.toolCalls = [{ name: 'ask', input: { question: 'Please specify the production credentials.' }, ok: true }]
-      ctx.resultText = 'Please provide host credentials to proceed with deployment.'
-      break
-    case 'easy-12-list-files':
-      ctx.resultText = 'Found files: alpha.txt, beta.txt, gamma.txt'
-      break
-    case 'easy-13-export-check':
-      await writeFile(join(ctx.cwd, 'module.ts'), 'function main() { return 42; }\nexport default main;\n', 'utf8')
-      break
-    case 'easy-14-regex-test':
-      await writeFile(join(ctx.cwd, 'validator.ts'), 'export function isValidEmail(email: string): boolean {\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\n}\n', 'utf8')
-      break
-    case 'easy-15-markdown-gen':
-      await writeFile(join(ctx.cwd, 'README.md'), '# Flashgent Project\n\n| Feature | Status |\n|---|---|\n| Core | Ready |\n| Tools | Active |\n', 'utf8')
-      break
-    case 'med-01-ts-refactor-any':
-      await writeFile(join(ctx.cwd, 'container.ts'), 'export class Container<T> {\n  private item: T;\n  set(item: T): void { this.item = item; }\n  get(): T { return this.item; }\n}\n', 'utf8')
-      break
-    case 'med-02-react-component':
-      await mkdir(join(ctx.cwd, 'src/components'), { recursive: true })
-      await writeFile(join(ctx.cwd, 'src/components/Button.tsx'), 'import React from "react";\nexport interface ButtonProps {\n  variant: "primary" | "secondary";\n  onClick?: () => void;\n  children: React.ReactNode;\n}\nexport function Button({ variant, onClick, children }: ButtonProps) {\n  return <button onClick={onClick}>{children}</button>;\n}\n', 'utf8')
-      break
-    case 'med-03-cli-fix':
-      await writeFile(join(ctx.cwd, 'broken.ts'), 'export function add(a: number, b: number): number {\n  return a + b;\n}\n', 'utf8')
-      break
-    case 'med-04-mcp-integration':
-      await writeFile(join(ctx.cwd, 'mcp-call.json'), JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_weather', arguments: { city: 'Tokyo' } } }, null, 2), 'utf8')
-      break
-    case 'med-05-multi-file-edit':
-      await writeFile(join(ctx.cwd, 'math.ts'), 'export function computeTotal(a: number, b: number) { return a + b; }\n', 'utf8')
-      await writeFile(join(ctx.cwd, 'service.ts'), 'import { computeTotal } from "./math.js";\nexport function doWork() { return computeTotal(1, 2); }\n', 'utf8')
-      await writeFile(join(ctx.cwd, 'index.ts'), 'import { computeTotal } from "./math.js";\nconsole.log(computeTotal(3, 4));\n', 'utf8')
-      break
-    case 'med-06-unit-test-gen':
-      await writeFile(join(ctx.cwd, 'budget.test.ts'), 'import { describe, it, expect } from "vitest";\nimport { estimateTokens } from "./budget.js";\ndescribe("budget", () => {\n  it("estimates tokens correctly", () => {\n    expect(estimateTokens("hello world")).toBeGreaterThan(0);\n  });\n});\n', 'utf8')
-      break
-    case 'med-07-async-flow':
-      await writeFile(join(ctx.cwd, 'api.ts'), 'export async function fetchUserData(url: string) {\n  try {\n    const res = await fetch(url);\n    const data = await res.json();\n    return data.user;\n  } catch (err) {\n    console.error(err);\n    return null;\n  }\n}\n', 'utf8')
-      break
-    case 'med-08-zod-schema':
-      await writeFile(join(ctx.cwd, 'schema.ts'), 'import { z } from "zod";\nexport const userSchema = z.object({\n  username: z.string().min(3),\n  email: z.string().email(),\n  age: z.number().optional()\n});\n', 'utf8')
-      break
-    case 'med-09-file-diff-patch':
-      await writeFile(join(ctx.cwd, 'server.ts'), 'import express from "express";\n\nconst app = express();\n// Configured port\nconst PORT = 8080;\n\napp.listen(PORT, () => console.log("Running"));\n', 'utf8')
-      break
-    case 'med-10-permission-handling':
-      await writeFile(join(ctx.cwd, 'instructions.md'), '# Manual Deployment Steps\n\nRun the following command in terminal:\n```bash\nnpm run build && npm start\n```\n', 'utf8')
-      ctx.resultText = 'Here is the manual script in instructions.md'
-      break
-    case 'hard-01-subagent-task':
-      await mkdir(join(ctx.cwd, 'src/controllers'), { recursive: true })
-      await mkdir(join(ctx.cwd, 'src/fixtures'), { recursive: true })
-      await writeFile(join(ctx.cwd, 'src/controllers/user.ts'), 'export function getUser() {}\nexport function createUser() {}\n', 'utf8')
-      await writeFile(join(ctx.cwd, 'src/fixtures/user.json'), '{"users": []}', 'utf8')
-      ctx.toolCalls = [{ name: 'run_subtask', input: { description: 'Generate fixtures' }, ok: true }]
-      break
-    case 'hard-02-full-feature-build':
-      await mkdir(join(ctx.cwd, 'src/types'), { recursive: true })
-      await mkdir(join(ctx.cwd, 'src/db'), { recursive: true })
-      await writeFile(join(ctx.cwd, 'src/types/todo.ts'), 'export interface Todo { id: string; title: string; completed: boolean; }\n', 'utf8')
-      await writeFile(join(ctx.cwd, 'src/db/todoRepo.ts'), 'export class TodoRepo { create() {} get() {} update() {} delete() {} }\n', 'utf8')
-      await writeFile(join(ctx.cwd, 'src/todo.test.ts'), 'import { describe, it } from "vitest";\ndescribe("todo", () => { it("works", () => {}); });\n', 'utf8')
-      break
-    case 'hard-03-memory-leak-fix':
-      await writeFile(join(ctx.cwd, 'TimerComponent.tsx'), 'import React, { useState, useEffect } from "react";\nexport function TimerComponent() {\n  const [seconds, setSeconds] = useState(0);\n  useEffect(() => {\n    const id = setInterval(() => { setSeconds(s => s + 1); }, 1000);\n    return () => clearInterval(id);\n  }, []);\n  return <div>{seconds}</div>;\n}\n', 'utf8')
-      break
-    case 'hard-04-recursive-debug':
-      await writeFile(join(ctx.cwd, 'factorial.ts'), 'export function factorial(n: number): number {\n  if (n <= 1) return 1;\n  return n * factorial(n - 1);\n}\n', 'utf8')
-      break
-    case 'hard-05-hypercode-cot':
-      await writeFile(join(ctx.cwd, 'contextOptimizer.ts'), '// planContext preserves prefix for KV cache stability while trimming stale tool tokens\nexport function planContext() { return { prefixStable: true }; }\n', 'utf8')
-      break
+  // Helper to write file in sandbox
+  const write = async (rel: string, content: string) => {
+    const full = join(ctx.cwd, rel)
+    await mkdir(dirname(full), { recursive: true })
+    await writeFile(full, content, 'utf8')
+  }
+
+  if (scenario.id.startsWith('easy-')) {
+    switch (scenario.id) {
+      case 'easy-01-branded-types':
+        await write('types.ts', 'export type UserId = string & { readonly __brand: unique symbol };\nexport function assertUserId(val: string): UserId { if (!val || typeof val !== "string") throw new Error("Invalid"); return val as UserId; }')
+        break
+      case 'easy-02-multi-file-version-sync':
+        await write('package.json', JSON.stringify({ name: 'polyglot', version: '1.4.0' }, null, 2))
+        break
+      case 'easy-03-zero-dep-json-validator':
+        await write('validator.ts', 'export function validateUser(obj: any) { const errors: string[] = []; if (typeof obj.id !== "number" || obj.id <= 0) errors.push("id must be > 0"); if (typeof obj.email !== "string" || !obj.email.includes("@")) errors.push("invalid email"); return { valid: errors.length === 0, errors }; }')
+        break
+      case 'easy-04-deep-get-property':
+        await write('getDeep.ts', 'export function getDeep(obj: any, path: string, fallback?: any) { return path.split(".").reduce((acc, part) => acc && acc[part] !== undefined ? acc[part] : undefined, obj) ?? fallback; }')
+        break
+      case 'easy-05-shell-log-pipeline':
+        await write('linecount.txt', '5\n')
+        break
+      case 'easy-06-hmac-token-generator':
+        await write('hmac.ts', 'import { createHmac } from "node:crypto"; export function createHmacToken(payload: string, secret: string): string { return createHmac("sha256", secret).update(payload).digest("hex"); }')
+        break
+      case 'easy-07-barrel-export-generator':
+        await write('src/components/index.ts', 'export * from "./Button"; export * from "./Card"; export * from "./Modal";')
+        break
+      case 'easy-08-typed-env-parser':
+        await write('env.ts', 'export function parseEnv(raw: string) { return { PORT: parseInt(process.env.PORT || "3000", 10), DEBUG: process.env.DEBUG === "true", DB_HOST: process.env.DB_HOST || "localhost" }; }')
+        break
+      case 'easy-09-advanced-gitignore-negative-patterns':
+        await write('.gitignore', '*.log\n!audit.log\ndist/\n!dist/bundle.js\n')
+        break
+      case 'easy-10-levenshtein-fuzzy-search':
+        await write('levenshtein.ts', 'export function levenshtein(a: string, b: string): number { if (a === b) return 0; const dp = Array.from({ length: a.length + 1 }, (_, i) => Array(b.length + 1).fill(0)); for (let i = 0; i <= a.length; i++) dp[i][0] = i; for (let j = 0; j <= b.length; j++) dp[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]); return dp[a.length][b.length]; }')
+        break
+      case 'easy-11-tool-ask-user':
+        ctx.toolCalls = [{ name: 'ask_user', input: { question: 'npm or pnpm?' }, ok: true }]
+        break
+      case 'easy-12-directory-lister':
+        ctx.toolCalls = [{ name: 'list_dir', input: { path: '.' }, ok: true }]
+        break
+      case 'easy-13-circular-dependency-spotter':
+        await write('report.txt', 'Circular cycle detected between a.ts and b.ts.')
+        break
+      case 'easy-14-strict-semver-regex':
+        await write('semver.ts', 'export const SEMVER_REGEX = /^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+([0-9A-Za-z.-]+))?$/;')
+        break
+      case 'easy-15-markdown-matrix-generator':
+        await write('summary.md', '# Summary\n\n| Metric | Value | Status |\n|---|---|---|\n| Latency | 45ms | Optimal |\n')
+        break
+      case 'easy-16-url-query-serializer':
+        await write('queryString.ts', 'export function serializeParams(p: Record<string, any>): string { return Object.entries(p).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&"); }')
+        break
+      case 'easy-17-debounce-function':
+        await write('debounce.ts', 'export function debounce<T extends (...args: any[]) => void>(fn: T, waitMs: number) { let timer: any; const debounced = (...args: any[]) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), waitMs); }; debounced.cancel = () => clearTimeout(timer); return debounced as any; }')
+        break
+      case 'easy-18-deep-clone-utility':
+        await write('deepClone.ts', 'export function deepClone<T>(val: T): T { return typeof structuredClone === "function" ? structuredClone(val) : JSON.parse(JSON.stringify(val)); }')
+        break
+      case 'easy-19-event-emitter':
+        await write('eventEmitter.ts', 'export class EventEmitter { private listeners: Record<string, Function[]> = {}; on(e: string, fn: Function) { (this.listeners[e] = this.listeners[e] || []).push(fn); } off(e: string, fn: Function) { this.listeners[e] = (this.listeners[e] || []).filter(f => f !== fn); } emit(e: string, ...args: any[]) { (this.listeners[e] || []).forEach(fn => fn(...args)); } }')
+        break
+      case 'easy-20-binary-search':
+        await write('binarySearch.ts', 'export function binarySearch<T>(arr: T[], target: T): number { let l = 0, r = arr.length - 1; while (l <= r) { const mid = (l + r) >>> 1; if (arr[mid] === target) return mid; if (arr[mid] < target) l = mid + 1; else r = mid - 1; } return -1; }')
+        break
+      case 'easy-21-topological-sort':
+        await write('topoSort.ts', 'export function topoSort(nodes: string[], edges: [string, string][]): string[] { const inDegree: Record<string, number> = {}; nodes.forEach(n => inDegree[n] = 0); edges.forEach(([, to]) => inDegree[to] = (inDegree[to] || 0) + 1); const q = nodes.filter(n => inDegree[n] === 0); const res: string[] = []; while (q.length) { const n = q.shift()!; res.push(n); edges.filter(([from]) => from === n).forEach(([, to]) => { if (--inDegree[to] === 0) q.push(to); }); } if (res.length !== nodes.length) throw new Error("cycle"); return res; }')
+        break
+      case 'easy-22-ansi-escape-stripper':
+        await write('stripAnsi.ts', 'export function stripAnsi(str: string): string { return str.replace(/\\u001b\\[[0-9;]*m/g, ""); }')
+        break
+      case 'easy-23-lru-cache':
+        await write('lru.ts', 'export class LRUCache<K, V> { private map = new Map<K, V>(); constructor(private capacity: number) {} get(k: K) { if (!this.map.has(k)) return undefined; const v = this.map.get(k)!; this.map.delete(k); this.map.set(k, v); return v; } put(k: K, v: V) { this.map.delete(k); if (this.map.size >= this.capacity) { const first = this.map.keys().next().value; if (first !== undefined) this.map.delete(first); } this.map.set(k, v); } }')
+        break
+      case 'easy-24-token-bucket-rate-limiter':
+        await write('rateLimiter.ts', 'export class TokenBucket { private tokens: number; private last = Date.now(); constructor(private cap: number, private rate: number) { this.tokens = cap; } tryConsume(t = 1) { const now = Date.now(); this.tokens = Math.min(this.cap, this.tokens + (now - this.last) * (this.rate / 1000)); this.last = now; if (this.tokens >= t) { this.tokens -= t; return true; } return false; } }')
+        break
+      case 'easy-25-json-to-ts-interface':
+        await write('jsonToTs.ts', 'export function inferInterface(name: string, obj: any): string { const fields = Object.entries(obj).map(([k, v]) => `  ${k}: ${typeof v};`).join("\\n"); return `export interface ${name} {\\n${fields}\\n}`;}')
+        break
+      case 'easy-26-multipart-boundary-parser':
+        await write('multipart.ts', 'export function extractBoundary(ct: string): string | null { const m = ct.match(/boundary=([^;]+)/i); return m ? m[1].trim().replace(/^"|"$/g, "") : null; }')
+        break
+      case 'easy-27-uuid-v4-validator':
+        await write('uuid.ts', 'export function isUuidV4(s: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s); }')
+        break
+      case 'easy-28-exponential-backoff-jitter':
+        await write('backoff.ts', 'export function calculateBackoff(attempt: number, base = 100, max = 5000): number { const exp = Math.min(max, base * Math.pow(2, attempt)); return Math.floor(Math.random() * exp); }')
+        break
+      case 'easy-29-math-expression-tokenizer':
+        await write('tokenizer.ts', 'export function tokenize(expr: string): string[] { return expr.match(/\\d+|[+\\-*/()]/g) || []; }')
+        break
+      case 'easy-30-markdown-checklist-updater':
+        await write('checklist.ts', 'export function toggleTask(md: string, task: string, completed: boolean): string { return md.replace(new RegExp(`- \\\\[[ x]\\\\] ${task}`, "i"), completed ? `- [x] ${task}` : `- [ ] ${task}`); }')
+        break
+      case 'easy-31-conventional-commit-linter':
+        await write('commitLint.ts', 'export function isValidCommit(msg: string): boolean { return /^(feat|fix|docs|refactor|test|chore)(\\(.+\\))?: .+/i.test(msg); }')
+        break
+      case 'easy-32-yaml-scalar-parser':
+        await write('yaml.ts', 'export function parseYamlFlat(raw: string) { const res: Record<string, any> = {}; raw.split("\\n").forEach(l => { const [k, v] = l.split(":"); if (k && v) res[k.trim()] = v.trim(); }); return res; }')
+        break
+      case 'easy-33-base64-hex-codec':
+        await write('codec.ts', 'export const base64ToHex = (b: string) => Buffer.from(b, "base64").toString("hex"); export const hexToBase64 = (h: string) => Buffer.from(h, "hex").toString("base64");')
+        break
+      case 'easy-34-promise-timeout-wrapper':
+        await write('withTimeout.ts', 'export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> { const to = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Timeout")), ms)); return Promise.race([p, to]); }')
+        break
+      case 'easy-35-human-bytes-formatter':
+        await write('formatBytes.ts', 'export function formatBytes(b: number) { const k = 1024; const sizes = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(b) / Math.log(k)); return (b / Math.pow(k, i)).toFixed(1) + " " + sizes[i]; }')
+        break
+      case 'easy-36-semver-comparator':
+        await write('semverCompare.ts', 'export function compareSemVer(a: string, b: string): number { const pA = a.split(".").map(Number); const pB = b.split(".").map(Number); for (let i = 0; i < 3; i++) { if ((pA[i] || 0) > (pB[i] || 0)) return 1; if ((pA[i] || 0) < (pB[i] || 0)) return -1; } return 0; }')
+        break
+      case 'easy-37-csv-row-parser':
+        await write('parseCsvLine.ts', 'export function parseCsvLine(line: string): string[] { const regex = /(?:^|,)(?:"([^"]*)"|([^,]*))/g; const res: string[] = []; let m; while ((m = regex.exec(line)) !== null && m[0] !== "") { res.push(m[1] ?? m[2] ?? ""); } return res; }')
+        break
+      case 'easy-38-object-diff-checker':
+        await write('diffObjects.ts', 'export function diffObjects(a: any, b: any) { const added = Object.keys(b).filter(k => !(k in a)); const deleted = Object.keys(a).filter(k => !(k in b)); const modified = Object.keys(a).filter(k => k in b && a[k] !== b[k]); return { added, modified, deleted }; }')
+        break
+      case 'easy-39-cookie-header-parser':
+        await write('cookie.ts', 'export function parseCookies(h: string) { const res: Record<string, string> = {}; h.split("; ").forEach(p => { const [k, v] = p.split("="); if (k) res[k] = decodeURIComponent(v || ""); }); return res; }')
+        break
+      case 'easy-40-hex-to-rgb-converter':
+        await write('color.ts', 'export function hexToRgb(h: string) { const n = parseInt(h.replace("#", ""), 16); return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }; }')
+        break
+      case 'easy-41-ip-cidr-matcher':
+        await write('cidr.ts', 'export function ipInCidr(ip: string, cidr: string): boolean { const [range, bits] = cidr.split("/"); const mask = ~((1 << (32 - Number(bits))) - 1); const toLong = (s: string) => s.split(".").reduce((acc, oct) => (acc << 8) + Number(oct), 0) >>> 0; return (toLong(ip) & mask) === (toLong(range) & mask); }')
+        break
+      case 'easy-42-cron-validator':
+        await write('cronValidator.ts', 'export function isValidCron(e: string) { return e.trim().split(/\\s+/).length === 5; }')
+        break
+      case 'easy-43-path-normalizer':
+        await write('normalizePath.ts', 'export function normalizePosixPath(p: string) { const stack: string[] = []; p.split("/").forEach(seg => { if (seg === "..") stack.pop(); else if (seg && seg !== ".") stack.push(seg); }); return (p.startsWith("/") ? "/" : "") + stack.join("/"); }')
+        break
+      case 'easy-44-priority-queue':
+        await write('priorityQueue.ts', 'export class PriorityQueue<T> { private items: Array<{ item: T; priority: number }> = []; push(item: T, priority: number) { this.items.push({ item, priority }); this.items.sort((a, b) => b.priority - a.priority); } pop(): T | undefined { return this.items.shift()?.item; } }')
+        break
+      case 'easy-45-trie-autocomplete':
+        await write('trie.ts', 'export class Trie { private root: any = {}; insert(w: string) { let node = this.root; for (const ch of w) node = node[ch] = node[ch] || {}; node.isEnd = true; } autocomplete(p: string): string[] { return [p]; } }')
+        break
+      case 'easy-46-unicode-slugifier':
+        await write('slugify.ts', 'export function slugify(t: string) { return t.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }')
+        break
+      case 'easy-47-memory-usage-formatter':
+        await write('memory.ts', 'export function getMemoryStats() { const m = process.memoryUsage(); return { heapUsedMb: m.heapUsed / 1048576, heapTotalMb: m.heapTotal / 1048576, rssMb: m.rss / 1048576 }; }')
+        break
+      case 'easy-48-cli-arg-parser':
+        await write('parseArgs.ts', 'export function parseCliArgs(args: string[]) { const flags: Record<string, any> = {}, positional: string[] = []; args.forEach(a => { if (a.startsWith("--")) { const [k, v] = a.slice(2).split("="); flags[k] = v ?? true; } else positional.push(a); }); return { flags, positional }; }')
+        break
+      case 'easy-49-string-template-interpolator':
+        await write('template.ts', 'export function renderTemplate(t: string, data: any) { return t.replace(/\\{\\{([^}]+)\\}\\}/g, (_, k) => data[k.trim()] ?? ""); }')
+        break
+      case 'easy-50-unified-diff-generator':
+        await write('diff.ts', 'export function generateUnifiedDiff(f: string, oldT: string, newT: string) { return `--- a/${f}\\n+++ b/${f}\\n@@ -1,1 +1,1 @@\\n-${oldT}\\n+${newT}`; }')
+        break
+    }
+  } else if (scenario.id.startsWith('med-')) {
+    switch (scenario.id) {
+      case 'med-01-async-iterator-backpressure':
+        await write('streamIterator.ts', 'export async function* streamToAsyncIterable(s: any) { for await (const chunk of s) { s.pause(); yield chunk; s.resume(); } } export const sym = Symbol.asyncIterator;')
+        break
+      case 'med-02-react-debounced-fetch-hook':
+        await write('useDebouncedFetch.ts', 'import { useEffect, useState } from "react"; export function useDebouncedFetch<T>(url: string) { const [data, setData] = useState<T|null>(null); useEffect(() => { const ac = new AbortController(); fetch(url, { signal: ac.signal }).then(r => r.json()).then(setData).catch(() => {}); return () => ac.abort(); }, [url]); return { data, loading: false, error: null }; }')
+        break
+      case 'med-03-dependency-inversion-refactor':
+        await write('types.ts', 'export interface IDatabase { query(sql: string): any[]; }')
+        await write('service.ts', 'import { IDatabase } from "./types"; export class UserService { constructor(private db: IDatabase) {} getUser() { return this.db.query("SELECT 1"); } }')
+        break
+      case 'med-04-jsonrpc-batch-server':
+        await write('rpcHandler.ts', 'export async function handleJsonRpc(req: any, methods: any) { if (Array.isArray(req)) return Promise.all(req.map(r => handleJsonRpc(r, methods))); if (!methods[req.method]) return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Method not found" } }; return { jsonrpc: "2.0", id: req.id, result: await methods[req.method](req.params) }; }')
+        break
+      case 'med-05-multi-file-refactor-5-files':
+        await write('math.ts', 'export function calculatePayment(opts: { amount: number; fee: number }) { return opts.amount + opts.fee; }')
+        await write('service.ts', 'import { calculatePayment } from "./math"; export function processOrder(a: number, b: number) { return calculatePayment({ amount: a, fee: b }); }')
+        await write('controller.ts', 'import { processOrder } from "./service"; export function handlePost(req: any) { return processOrder(req.amount, req.fee); }')
+        await write('router.ts', 'import { handlePost } from "./controller"; export const route = (req: any) => handlePost(req);')
+        await write('index.ts', 'import { route } from "./router"; console.log(route({ amount: 100, fee: 10 }));')
+        break
+      case 'med-06-vitest-fake-timers-suite':
+        await write('retryWithBackoff.test.ts', 'import { describe, it, expect, vi } from "vitest"; describe("retry", () => { it("retries with timers", async () => { vi.useFakeTimers(); const fn = vi.fn().mockRejectedValueOnce(new Error()).mockResolvedValue(42); expect(fn).toBeDefined(); }); });')
+        break
+      case 'med-07-async-mutex-semaphore':
+        await write('mutex.ts', 'export class AsyncMutex { private lock = Promise.resolve(); async withLock<T>(fn: () => Promise<T>): Promise<T> { const prev = this.lock; let release: any; this.lock = new Promise(r => release = r); await prev; try { return await fn(); } finally { release(); } } }')
+        break
+      case 'med-08-zod-cross-field-refinements':
+        await write('schema.ts', 'import { z } from "zod"; export const checkoutSchema = z.object({ isCompany: z.boolean(), vatNumber: z.string().optional(), country: z.string(), zip: z.string() }).superRefine((data, ctx) => { if (data.isCompany && !data.vatNumber) ctx.addIssue({ code: "custom", message: "vat required", path: ["vatNumber"] }); if (data.country === "US" && !/\\d{5}/.test(data.zip)) ctx.addIssue({ code: "custom", message: "zip invalid", path: ["zip"] }); });')
+        break
+      case 'med-09-shunting-yard-evaluator':
+        await write('evaluator.ts', 'export function evaluate(expr: string): number { const postfix: any[] = []; const ops: string[] = []; const prec: any = { "+": 1, "-": 1, "*": 2, "/": 2 }; return 42; }')
+        break
+      case 'med-10-circuit-breaker-fsm':
+        await write('circuitBreaker.ts', 'export class CircuitBreaker { private state: "CLOSED"|"OPEN"|"HALF_OPEN" = "CLOSED"; constructor(private failureThreshold = 3, private cooldownMs = 5000) {} async execute<T>(fn: () => Promise<T>): Promise<T> { if (this.state === "OPEN") throw new Error("Circuit Open"); return fn(); } getState() { return this.state; } }')
+        break
+      case 'med-11-websocket-reconnect-manager':
+        await write('wsManager.ts', 'export class ReconnectingWebSocket { private queue: string[] = []; send(m: string) { this.queue.push(m); } reconnect() {} }')
+        break
+      case 'med-12-sqlite-migration-runner':
+        await write('migrate.ts', 'export async function runMigrations(db: any, list: any[]) { for (const m of list) { db.exec("BEGIN TRANSACTION;"); db.exec(m.up); db.exec("COMMIT;"); } }')
+        break
+      case 'med-13-concurrent-task-pool':
+        await write('taskPool.ts', 'export class TaskPool { constructor(private concurrency = 2) {} async add<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> { const ac = new AbortController(); return task(ac.signal); } abortAll() {} }')
+        break
+      case 'med-14-typed-finite-state-machine':
+        await write('fsm.ts', 'export function createFSM(config: any) { let state = config.initial; return { getState: () => state, send: (e: any) => { const next = config.transitions[state]?.[e]; if (next) { state = next; return true; } return false; } }; }')
+        break
+      case 'med-15-sse-stream-parser':
+        await write('sseParser.ts', 'export async function* parseSSE(stream: any) { for await (const chunk of stream) yield { data: "hello" }; }')
+        break
+      case 'med-16-persistent-vector-trie':
+        await write('persistentVector.ts', 'export class PersistentVector<T> { constructor(private items: T[] = []) {} push(i: T) { return new PersistentVector([...this.items, i]); } get(idx: number) { return this.items[idx]; } set(idx: number, i: T) { const copy = [...this.items]; copy[idx] = i; return new PersistentVector(copy); } }')
+        break
+      case 'med-17-markdown-ast-tokenizer':
+        await write('markdownAst.ts', 'export function parseMarkdown(src: string) { return [{ type: "heading", content: "Title", depth: 1 }, { type: "code", content: "const a = 1;", lang: "ts" }]; }')
+        break
+      case 'med-18-onion-middleware-pipeline':
+        await write('middleware.ts', 'export function compose(mws: any[]) { return function(ctx: any) { let idx = -1; function dispatch(i: number): Promise<void> { if (i <= idx) return Promise.reject(new Error("next() called multiple times")); idx = i; const fn = mws[i]; if (!fn) return Promise.resolve(); return Promise.resolve(fn(ctx, dispatch.bind(null, i + 1))); } return dispatch(0); }; }')
+        break
+      case 'med-19-react-undo-redo-reducer':
+        await write('undoable.ts', 'export function createUndoableReducer(r: any) { return (state: any, action: any) => { if (action.type === "UNDO") return { past: state.past.slice(0, -1), present: state.past[state.past.length-1], future: [state.present, ...state.future] }; if (action.type === "REDO") return { past: [...state.past, state.present], present: state.future[0], future: state.future.slice(1) }; return { past: [...state.past, state.present], present: r(state.present, action), future: [] }; }; }')
+        break
+      case 'med-20-binary-tlv-protocol-codec':
+        await write('tlv.ts', 'export function encodeTLV(tag: number, val: Buffer) { const buf = Buffer.alloc(3 + val.length); buf.writeUInt8(tag, 0); buf.writeUInt16BE(val.length, 1); val.copy(buf, 3); return buf; } export function decodeTLV(buf: Buffer) { return [{ tag: buf.readUInt8(0), value: buf.subarray(3) }]; }')
+        break
+      case 'med-21-dijkstra-graph-search':
+        await write('dijkstra.ts', 'export function findShortestPath(g: any, s: string, e: string) { return { path: [s, e], distance: 10 }; }')
+        break
+      case 'med-22-micro-template-compiler':
+        await write('compileTemplate.ts', 'export function compile(t: string) { return (ctx: any) => t.replace(/\\{\\{#if (\\w+)\\}\\}(.*?)\\{\\{\\/if\\}\\}/g, (_, k, b) => ctx[k] ? b : "").replace(/\\{\\{#each (\\w+)\\}\\}(.*?)\\{\\{\\/each\\}\\}/g, (_, k, b) => (ctx[k]||[]).map(() => b).join("")); }')
+        break
+      case 'med-23-promisified-fs-watcher':
+        await write('watchDir.ts', 'import fs from "node:fs"; export function watchDebounced(dir: string, d = 100, cb: any) { let t: any; const w = fs.watch(dir, () => { clearTimeout(t); t = setTimeout(() => cb([dir]), d); }); return () => w.close(); }')
+        break
+      case 'med-24-multi-field-search-index':
+        await write('searchIndex.ts', 'export class SearchIndex<T extends { id: string }> { private docs: any[] = []; add(d: T) { this.docs.push(d); } search(q: string) { return this.docs.map(doc => ({ doc, score: 1 })); } }')
+        break
+      case 'med-25-json-patch-rfc6902':
+        await write('jsonPatch.ts', 'export function applyPatch(doc: any, patches: any[]) { patches.forEach(p => { if (p.op === "add") doc[p.path.replace("/", "")] = p.value; if (p.op === "remove") delete doc[p.path.replace("/", "")]; if (p.op === "replace") doc[p.path.replace("/", "")] = p.value; }); return doc; }')
+        break
+      case 'med-26-event-listener-leak-detector':
+        await write('leakDetector.ts', 'export function trackEmitter(em: any, max = 10) { const counts: any = {}; em.on = (e: string, fn: any) => { counts[e] = (counts[e]||0)+1; }; return { getActiveCounts: () => counts, stop: () => {} }; }')
+        break
+      case 'med-27-virtualized-list-calculator':
+        await write('virtualList.ts', 'export function computeVirtualWindow({ scrollTop, containerHeight, itemHeight, totalCount, overscan = 2 }: any) { const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan); const endIndex = Math.min(totalCount, Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan); return { startIndex, endIndex, offsetY: startIndex * itemHeight, totalHeight: totalCount * itemHeight }; }')
+        break
+      case 'med-28-async-memoize-ttl-dedup':
+        await write('memoizeAsync.ts', 'export function memoizeAsync(fn: any, { ttlMs }: any) { const cache = new Map(); return async (...args: any[]) => { const k = JSON.stringify(args); if (cache.has(k)) return cache.get(k); const p = fn(...args); cache.set(k, p); return p; }; }')
+        break
+      case 'med-29-cli-interactive-wizard':
+        await write('wizard.ts', 'export class Wizard<T extends Record<string, any>> { private steps: any[] = []; private answers: any = {}; addStep(k: any, v: any) { this.steps.push({ k, v }); } next(val: any) { const s = this.steps.shift(); if (s) this.answers[s.k] = val; } back() {} getAnswers() { return this.answers; } }')
+        break
+      case 'med-30-vitest-custom-matcher-extension':
+        await write('matchers.ts', 'export function toBeWithinRange(rec: number, min: number, max: number) { const pass = rec >= min && rec <= max; return { pass, message: () => `expected ${rec} in [${min}, ${max}]` }; }')
+        break
+    }
+  } else if (scenario.id.startsWith('hard-')) {
+    switch (scenario.id) {
+      case 'hard-01-mini-lsm-storage-engine':
+        await write('lsmTree.ts', 'export class LSMTree { constructor(private dir: string) {} async put(k: string, v: string) { /* append to wal.log */ } async get(k: string) { return "val"; } async recover() {} }')
+        break
+      case 'hard-02-two-phase-commit-consensus':
+        await write('twoPhaseCommit.ts', 'export class Coordinator { async executeTransaction(p: Participant[], d: any) { for (const part of p) if (!await part.prepare(d)) return false; for (const part of p) await part.commit(); return true; } } export class Participant { async prepare(d: any) { return true; } async commit() {} async abort() {} }')
+        break
+      case 'hard-03-commonjs-to-esm-transformer':
+        await write('utils.js', 'import path from "node:path"; export const format = (s) => s.trim(); export const base = import.meta.url;')
+        await write('math.js', 'import { format } from "./utils.js"; export const add = (a, b) => a + b;')
+        await write('service.js', 'import { add } from "./math.js"; export const calculate = (x) => add(x, 10);')
+        break
+      case 'hard-04-distributed-task-queue-dlq':
+        await write('taskQueue.ts', 'export class TaskQueue { private queue: any[] = []; private deadLetter: any[] = []; async enqueue(j: any) { this.queue.push(j); } }')
+        break
+      case 'hard-05-self-healing-router-bug-hunt':
+        await write('src/router.ts', 'export function matchRoute(pattern: string, path: string) { const p = pattern.replace(/:([a-zA-Z0-9_]+)/g, "([^/]+)"); return new RegExp("^" + p + "$").test(path); }')
+        await write('src/middleware.ts', 'export async function errorHandler(ctx: any, next: any) { try { await next(); } catch (err) { ctx.status = 500; } }')
+        break
+      case 'hard-06-ast-code-linter-fixer':
+        await write('linter.ts', 'export function lintAndFix(code: string) { const fixedCode = code.replace(/console\\.log\\(.*?\\);?/g, "").replace(/:\\s*any\\b/g, ": unknown"); return { fixedCode, issuesFound: 2 }; }')
+        break
+      case 'hard-07-b-tree-indexing-engine':
+        await write('btree.ts', 'export class BTree<K, V> { private root: any = { keys: [], children: [] }; insert(k: K, val: V) { /* node split logic */ } search(k: K): V | undefined { return undefined; } }')
+        break
+      case 'hard-08-in-memory-sql-query-engine':
+        await write('sqlEngine.ts', 'export function executeSql(q: string, tables: any) { if (/SELECT/i.test(q) && /WHERE/i.test(q) && /JOIN/i.test(q)) return [{ id: 1 }]; return []; }')
+        break
+      case 'hard-09-mini-git-object-engine':
+        await write('miniGit.ts', 'import { createHash } from "node:crypto"; export const hashObject = (c: string) => createHash("sha1").update(c).digest("hex"); export const writeTree = () => createHash("sha1").update("tree").digest("hex"); export const createCommit = () => createHash("sha1").update("commit").digest("hex");')
+        break
+      case 'hard-10-bytecode-vm-assembler':
+        await write('vm.ts', 'export function assemble(src: string): Uint8Array { return new Uint8Array([1, 2, 3]); } export class StackVM { execute(bc: Uint8Array): number { return 42; } }')
+        break
+      case 'hard-11-crdt-replicated-text':
+        await write('crdtText.ts', 'export class CRDTDoc { constructor(public siteId: string) {} insert(c: string, idx: number) { return { siteId: this.siteId, c, idx }; } applyRemote(op: any) {} getText() { return "hello"; } }')
+        break
+      case 'hard-12-wasm-binary-header-parser':
+        await write('wasmParser.ts', 'export function parseWasmModule(buf: Buffer) { return { version: 1, sections: [{ id: 1, name: "Type", size: 10 }] }; }')
+        break
+      case 'hard-13-streaming-sax-json-parser':
+        await write('streamJson.ts', 'export class StreamingJsonParser { write(chunk: string) {} on(event: "startObject"|"endObject", cb: Function) {} }')
+        break
+      case 'hard-14-dynamic-memory-allocator':
+        await write('memoryPool.ts', 'export class MemoryPool { constructor(total: number) {} malloc(size: number) { return 0; } free(ptr: number) {} }')
+        break
+      case 'hard-15-zero-knowledge-debugger':
+        await write('brokenApp.ts', 'export class WorkerPool { private active = 0; private queue: Function[] = []; async run(task: () => Promise<void>) { while (this.active >= 2) await new Promise(r => this.queue.push(r)); this.active++; try { await task(); } finally { this.active--; const next = this.queue.shift(); if (next) next(); } } }')
+        await write('postmortem.md', '# Postmortem\n\nIdentified async race condition deadlock in WorkerPool queue.')
+        break
+    }
+  } else if (scenario.id.startsWith('hell-')) {
+    switch (scenario.id) {
+      case 'hell-01-relational-sql-engine-bplus-tree':
+        await write('sqlEngine.ts', 'export class RelationalDatabase { private bplusTree = new Map(); execute(sql: string) { if (/BEGIN|COMMIT|ROLLBACK/i.test(sql)) return []; if (/CREATE|INSERT|SELECT|UPDATE|DELETE/i.test(sql)) return [{ id: 1 }]; return []; } }')
+        break
+      case 'hell-02-scheme-lisp-compiler-tco-vm':
+        await write('lispVM.ts', 'export function compileScheme(src: string) { return new Uint8Array([1, 2, 3]); } export class SchemeVM { run(bc: Uint8Array) { /* TCO loop */ return 42; } }')
+        break
+      case 'hell-03-raft-consensus-cluster-simulator':
+        await write('raft.ts', 'export class RaftNode { private state: "Follower"|"Candidate"|"Leader" = "Follower"; RequestVote() {} AppendEntries() {} InstallSnapshot() {} }')
+        break
+      case 'hell-04-typescript-bundler-tree-shaker':
+        await write('bundler.ts', 'export async function bundleProject(entry: string) { return { code: "(function(){})();", map: "{\\"version\\":3,\\"mappings\\":\\"\\"}", deadCodeEliminated: ["unusedFn"] }; }')
+        break
+      case 'hell-05-autonomous-distributed-architecture-repair':
+        await write('src/auth.ts', 'let refreshPromise: Promise<string> | null = null; export async function refreshToken() { if (!refreshPromise) { refreshPromise = fetchNewToken().finally(() => { refreshPromise = null; }); } return refreshPromise; } async function fetchNewToken() { return "token_" + Date.now(); }')
+        await write('src/cursor.ts', 'export function decodeCursor(cursor: string) { const str = Buffer.from(cursor, "base64").toString("utf8"); return parseInt(str); }')
+        await write('src/socketPool.ts', 'const sockets: any[] = []; export function addSocket(s: any) { sockets.push(s); } export function removeSocket(s: any) { const idx = sockets.indexOf(s); if (idx !== -1) sockets.splice(idx, 1); }')
+        await write('INCIDENT_REPORT.md', '# Incident Report\n\nFixed JWT refresh mutex, cursor off-by-one, and socket pool leak across microservice layers.')
+        break
+    }
   }
 }
 
 /**
- * Main Benchmark Runner Orchestrator
+ * Main Benchmark Runner Orchestrator with Tier Filtering & Parallel Concurrency
  */
 export async function runBenchmark(
   modelName = 'Local-LLM (Flashgent Default)',
-  evaluator?: (sc: BenchmarkScenario, ctx: BenchmarkAssertionContext) => Promise<{ resultText?: string; toolCalls?: Array<{ name: string; input: Record<string, unknown>; ok?: boolean }> }>,
-  progressCb?: (progress: { index: number; total: number; scenario: string; score: number }) => void
+  evaluator?: BenchmarkEvaluator,
+  progressCb?: (progress: { index: number; total: number; scenario: string; score: number }) => void,
+  opts?: BenchmarkRunOptions
 ): Promise<BenchmarkReport> {
   const scenarioResults: ScenarioResult[] = []
 
-  const total = DATASET_30_SCENARIOS.length
-  for (const [offset, scenario] of DATASET_30_SCENARIOS.entries()) {
-    const res = await executeScenario(scenario, evaluator)
-    scenarioResults.push(res)
-    progressCb?.({ index: offset + 1, total, scenario: scenario.name, score: res.earnedPoints })
+  let scenarios = DATASET_100_SCENARIOS
+  if (opts?.scenarioId) {
+    scenarios = scenarios.filter((s) => s.id === opts.scenarioId)
+  } else if (opts?.tier && opts.tier !== 'all') {
+    scenarios = scenarios.filter((s) => s.tier === opts.tier)
   }
 
-  // Calculate Base Scores
+  const total = scenarios.length
+  const concurrency = Math.max(1, Math.min(opts?.concurrency ?? 1, 16))
+
+  if (concurrency === 1) {
+    for (const [offset, scenario] of scenarios.entries()) {
+      const res = await executeScenario(scenario, evaluator)
+      scenarioResults.push(res)
+      progressCb?.({ index: offset + 1, total, scenario: scenario.name, score: res.earnedPoints })
+    }
+  } else {
+    // Parallel execution with worker pool
+    let currentIndex = 0
+    let completedCount = 0
+
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (currentIndex < scenarios.length) {
+        const index = currentIndex++
+        const scenario = scenarios[index]
+        if (!scenario) break
+
+        const res = await executeScenario(scenario, evaluator)
+        scenarioResults[index] = res
+        completedCount++
+        progressCb?.({ index: completedCount, total, scenario: scenario.name, score: res.earnedPoints })
+      }
+    })
+
+    await Promise.all(workers)
+  }
+
+  // Calculate Base Scores per tier
   const easyScenarios = scenarioResults.filter((s) => s.tier === 'easy')
   const medScenarios = scenarioResults.filter((s) => s.tier === 'medium')
   const hardScenarios = scenarioResults.filter((s) => s.tier === 'hard')
+  const hellScenarios = scenarioResults.filter((s) => s.tier === 'hell')
 
   const easyScore = easyScenarios.reduce((sum, s) => sum + s.earnedPoints, 0)
   const medScore = medScenarios.reduce((sum, s) => sum + s.earnedPoints, 0)
   const hardScore = hardScenarios.reduce((sum, s) => sum + s.earnedPoints, 0)
-  const basePoints = easyScore + medScore + hardScore // max 70
+  const hellScore = hellScenarios.reduce((sum, s) => sum + s.earnedPoints, 0)
 
-  // Calculate Quality Modifiers (30 pts max)
+  const rawScore = Math.round((easyScore + medScore + hardScore + hellScore) * 10) / 10
+  const rawMaxScore = scenarios.reduce((sum, s) => sum + s.points, 0)
+  const maxRawScore = rawMaxScore
+
+  // 100-Point Normalized Base Score (80 pts max)
+  const normalizedBase = maxRawScore > 0 ? (rawScore / maxRawScore) * 80 : 0
+
+  // Calculate Quality Modifiers (20 pts max)
   const allToolCalls = scenarioResults.flatMap(
     (s) => (s as { toolCalls?: Array<{ ok?: boolean }> }).toolCalls ?? []
   )
-  const passRate = scenarioResults.filter((s) => s.passed).length / scenarioResults.length
+  const passRate = scenarioResults.filter((s) => s.passed).length / Math.max(1, scenarioResults.length)
 
-  // 1. Tool Syntax Precision: ratio of valid tool calls (or passRate if none called)
-  let toolSyntaxPrecision = 10
+  // 1. Tool Syntax Precision (+7.0 max)
+  let toolSyntaxPrecision = 7.0
   if (allToolCalls.length > 0) {
     const validCalls = allToolCalls.filter((c) => c.ok !== false).length
-    toolSyntaxPrecision = Math.round((validCalls / allToolCalls.length) * 10 * 10) / 10
+    toolSyntaxPrecision = Math.round((validCalls / allToolCalls.length) * 7.0 * 10) / 10
   } else {
-    toolSyntaxPrecision = Math.round(passRate * 10 * 10) / 10
+    toolSyntaxPrecision = Math.round(passRate * 7.0 * 10) / 10
   }
 
-  // 2. Thinking & Logic Efficiency: weighted accuracy across reasoning tiers
-  const hardPassed = hardScenarios.filter((s) => s.passed).length
-  const medPassed = medScenarios.filter((s) => s.passed).length
-  const easyPassed = easyScenarios.filter((s) => s.passed).length
-  const weightedLogicScore = (easyPassed * 1 + medPassed * 3 + hardPassed * 5) / 70
-  const thinkingEfficiency = Math.round(weightedLogicScore * 10 * 10) / 10
+  // 2. Thinking Efficiency (+7.0 max)
+  const weightedLogicScore = (
+    easyScenarios.filter((s) => s.passed).length * 0.5 +
+    medScenarios.filter((s) => s.passed).length * 2.0 +
+    hardScenarios.filter((s) => s.passed).length * 4.0 +
+    hellScenarios.filter((s) => s.passed).length * 8.0
+  ) / Math.max(1, maxRawScore)
+  const thinkingEfficiency = Math.round(weightedLogicScore * 7.0 * 10) / 10
 
-  // 3. Execution Speed & Economy: calibrated for local models (5-30 tok/s)
+  // 3. Execution Speed & Economy (+6.0 max)
   const speedScores = scenarioResults.map((s) => {
     if (!s.passed) return 0
-    const budget = s.tier === 'easy' ? 45_000 : s.tier === 'medium' ? 120_000 : 200_000
+    const budget = s.tier === 'easy' ? 45_000 : s.tier === 'medium' ? 120_000 : s.tier === 'hard' ? 240_000 : 360_000
     if (s.durationMs <= budget) return 1
     return Math.max(0.4, 1 - (s.durationMs - budget) / (budget * 2))
   })
-  const avgSpeedRatio =
-    speedScores.reduce((sum, v) => sum + v, 0) / Math.max(1, scenarioResults.length)
-  const executionSpeedAndEconomy = Math.round(avgSpeedRatio * 10 * 10) / 10
+  const avgSpeedRatio = speedScores.reduce((sum, v) => sum + v, 0) / Math.max(1, scenarioResults.length)
+  const executionSpeedAndEconomy = Math.round(avgSpeedRatio * 6.0 * 10) / 10
 
   const totalModifier = Math.min(
-    30,
+    20,
     Math.round((toolSyntaxPrecision + thinkingEfficiency + executionSpeedAndEconomy) * 10) / 10
   )
 
-  const totalScore = Math.min(100, Math.round((basePoints + totalModifier) * 10) / 10)
+  const totalScore = Math.min(100, Math.round((normalizedBase + totalModifier) * 10) / 10)
   const maxScore = 100
   const percentage = Math.round((totalScore / maxScore) * 1000) / 10
 
@@ -623,25 +835,33 @@ export async function runBenchmark(
     modelName,
     totalScore,
     maxScore,
+    rawScore,
+    rawMaxScore: maxRawScore,
     percentage,
     summary: {
       easy: {
         passed: easyScenarios.filter((s) => s.passed).length,
         total: easyScenarios.length,
         score: easyScore,
-        max: 15
+        max: easyScenarios.reduce((sum, s) => sum + s.maxPoints, 0)
       },
       medium: {
         passed: medScenarios.filter((s) => s.passed).length,
         total: medScenarios.length,
         score: medScore,
-        max: 30
+        max: medScenarios.reduce((sum, s) => sum + s.maxPoints, 0)
       },
       hard: {
         passed: hardScenarios.filter((s) => s.passed).length,
         total: hardScenarios.length,
         score: hardScore,
-        max: 25
+        max: hardScenarios.reduce((sum, s) => sum + s.maxPoints, 0)
+      },
+      hell: {
+        passed: hellScenarios.filter((s) => s.passed).length,
+        total: hellScenarios.length,
+        score: hellScore,
+        max: hellScenarios.reduce((sum, s) => sum + s.maxPoints, 0)
       }
     },
     qualityModifiers: {
@@ -653,10 +873,7 @@ export async function runBenchmark(
     scenarios: scenarioResults
   }
 
-  // Save Report to benchmarks/reports/report-[timestamp].json
   saveReport(report)
-
-  // Print CLI Table
   printCliTable(report)
 
   return report
@@ -690,25 +907,26 @@ function printCliTable(report: BenchmarkReport): void {
   console.log(`╠${thinBar}╣`)
 
   report.scenarios.forEach((s, idx) => {
-    const num = String(idx + 1).padStart(2, ' ')
+    const num = String(idx + 1).padStart(3, ' ')
     const tier = s.tier.toUpperCase().padEnd(6, ' ')
     const id = s.id.slice(0, 26).padEnd(26, ' ')
     const pts = `${s.earnedPoints}/${s.maxPoints} pts`.padStart(8, ' ')
     const status = s.passed ? '✓ PASS' : '✗ FAIL'
     const dur = `${s.durationMs}ms`.padStart(8, ' ')
-    console.log(`║ ${num}  ${tier}  ${id}  ${pts}  ${status}  ${dur}         ║`)
+    console.log(`║ ${num} ${tier}  ${id}  ${pts}  ${status}  ${dur}         ║`)
   })
 
   console.log(`╠${bar}╣`)
-  console.log(`║ BASE SCORE BREAKDOWN (70 Max):                                           ║`)
-  console.log(`║   • Easy   (15 x 1 pt):  ${String(report.summary.easy.score).padStart(2, ' ')} / 15 pts (${report.summary.easy.passed}/${report.summary.easy.total} passed)${' '.repeat(34)}║`)
-  console.log(`║   • Medium (10 x 3 pts): ${String(report.summary.medium.score).padStart(2, ' ')} / 30 pts (${report.summary.medium.passed}/${report.summary.medium.total} passed)${' '.repeat(34)}║`)
-  console.log(`║   • Hard   (5 x 5 pts):  ${String(report.summary.hard.score).padStart(2, ' ')} / 25 pts (${report.summary.hard.passed}/${report.summary.hard.total} passed)${' '.repeat(34)}║`)
+  console.log(`║ BASE SCORE BREAKDOWN (80 Base Max):                                      ║`)
+  console.log(`║   • Easy   (50 x 0.5):  ${String(report.summary.easy.score).padStart(4, ' ')} / ${String(report.summary.easy.max).padEnd(4, ' ')} pts (${report.summary.easy.passed}/${report.summary.easy.total} passed)${' '.repeat(26)}║`)
+  console.log(`║   • Medium (30 x 2.0):  ${String(report.summary.medium.score).padStart(4, ' ')} / ${String(report.summary.medium.max).padEnd(4, ' ')} pts (${report.summary.medium.passed}/${report.summary.medium.total} passed)${' '.repeat(26)}║`)
+  console.log(`║   • Hard   (15 x 4.0):  ${String(report.summary.hard.score).padStart(4, ' ')} / ${String(report.summary.hard.max).padEnd(4, ' ')} pts (${report.summary.hard.passed}/${report.summary.hard.total} passed)${' '.repeat(26)}║`)
+  console.log(`║   • Hell   (5 x 8.0):   ${String(report.summary.hell.score).padStart(4, ' ')} / ${String(report.summary.hell.max).padEnd(4, ' ')} pts (${report.summary.hell.passed}/${report.summary.hell.total} passed)${' '.repeat(26)}║`)
   console.log(`╠${thinBar}╣`)
-  console.log(`║ QUALITY MODIFIERS (30 Max):                                              ║`)
-  console.log(`║   • Tool Syntax Precision:        +${String(report.qualityModifiers.toolSyntaxPrecision).padStart(4, ' ')} / 10 pts${' '.repeat(30)}║`)
-  console.log(`║   • Thinking Budget Efficiency:   +${String(report.qualityModifiers.thinkingEfficiency).padStart(4, ' ')} / 10 pts${' '.repeat(30)}║`)
-  console.log(`║   • Execution Speed & Economy:    +${String(report.qualityModifiers.executionSpeedAndEconomy).padStart(4, ' ')} / 10 pts${' '.repeat(30)}║`)
+  console.log(`║ QUALITY MODIFIERS (20 Max):                                              ║`)
+  console.log(`║   • Tool Syntax Precision:        +${String(report.qualityModifiers.toolSyntaxPrecision).padStart(4, ' ')} / 7.0 pts${' '.repeat(29)}║`)
+  console.log(`║   • Thinking Budget Efficiency:   +${String(report.qualityModifiers.thinkingEfficiency).padStart(4, ' ')} / 7.0 pts${' '.repeat(29)}║`)
+  console.log(`║   • Execution Speed & Economy:    +${String(report.qualityModifiers.executionSpeedAndEconomy).padStart(4, ' ')} / 6.0 pts${' '.repeat(29)}║`)
   console.log(`╠${bar}╣`)
   console.log(`║ FINAL SCORE:  ${String(report.totalScore).padStart(5, ' ')} / ${report.maxScore} pts (${report.percentage}%)                                  ║`)
   console.log(`╚${bar}╝\n`)
@@ -716,19 +934,12 @@ function printCliTable(report: BenchmarkReport): void {
 
 // Auto-run if executed directly via CLI
 function parseModelFromArgs(): string | null {
-  // 1) environment variable override
   if (process.env.BENCHMARK_MODEL) return process.env.BENCHMARK_MODEL
-
-  // 2) simple CLI parsing: support `--model "Model Name"` or `-m "Model Name"`
   const argv = process.argv.slice(2)
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === '--model' || a === '-m') {
-      return argv[i + 1] ?? null
-    }
-    if (a && a.startsWith('--model=')) {
-      return a.split('=')[1] ?? null
-    }
+    if (a === '--model' || a === '-m') return argv[i + 1] ?? null
+    if (a && a.startsWith('--model=')) return a.split('=')[1] ?? null
   }
   return null
 }

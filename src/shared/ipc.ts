@@ -23,6 +23,7 @@ import type {
   BenchmarkProgress,
   BenchmarkReport,
   BenchmarkRunRecord,
+  BenchmarkTier,
   FileSnapshot,
   ProjectIndexSummary,
   BrowsePageRequest,
@@ -292,7 +293,7 @@ export interface FlashgentApi {
     install(): Promise<IpcResult<boolean>>
   }
   benchmark: {
-    run(model?: string): Promise<IpcResult<void>>
+    run(options?: string | { model?: string; tier?: BenchmarkTier | 'all'; scenarioId?: string; concurrency?: number }): Promise<IpcResult<void>>
     list(): Promise<IpcResult<BenchmarkRunRecord[]>>
     delete(id: string): Promise<IpcResult<boolean>>
     onProgress(cb: (progress: BenchmarkProgress) => void): () => void

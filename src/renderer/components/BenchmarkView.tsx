@@ -1,4 +1,4 @@
-import type { BenchmarkProgress, BenchmarkReport, BenchmarkRunRecord, ScenarioResult } from '@shared/types'
+import type { BenchmarkProgress, BenchmarkReport, BenchmarkRunRecord, BenchmarkTier, ScenarioResult } from '@shared/types'
 import { useEffect, useState } from 'react'
 import { formatRelativeTime } from '../lib/format.js'
 import { useApp } from '../store/app.js'
@@ -9,12 +9,15 @@ export function BenchmarkView(): React.ReactElement {
   const toast = useApp((s) => s.toast)
 
   const [selectedModel, setSelectedModel] = useState<string>(config?.lastModel || models[0]?.id || '')
+  const [selectedTier, setSelectedTier] = useState<BenchmarkTier | 'all'>('all')
+  const [concurrency, setConcurrency] = useState<number>(1)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<BenchmarkProgress | null>(null)
   const [activeReport, setActiveReport] = useState<BenchmarkReport | null>(null)
   const [history, setHistory] = useState<BenchmarkRunRecord[]>([])
   const [activeTab, setActiveTab] = useState<'latest' | 'leaderboard'>('latest')
-  const [tierFilter, setTierFilter] = useState<'all' | 'easy' | 'medium' | 'hard' | 'failed'>('all')
+  const [tierFilter, setTierFilter] = useState<'all' | 'easy' | 'medium' | 'hard' | 'hell' | 'failed'>('all')
+  const [searchQuery, setSearchQuery] = useState<string>('')
   const [expandedScenario, setExpandedScenario] = useState<string | null>(null)
 
   // Load past runs on mount
@@ -55,12 +58,18 @@ export function BenchmarkView(): React.ReactElement {
     }
   }, [])
 
-  const startBenchmark = async (): Promise<void> => {
+  const startBenchmark = async (targetScenarioId?: string): Promise<void> => {
     if (running) return
     setRunning(true)
-    setProgress({ index: 0, total: 30, scenario: 'Initializing benchmark suite...', score: 0 })
+    const expectedTotal = targetScenarioId ? 1 : selectedTier === 'easy' ? 50 : selectedTier === 'medium' ? 30 : selectedTier === 'hard' ? 15 : selectedTier === 'hell' ? 5 : 100
+    setProgress({ index: 0, total: expectedTotal, scenario: 'Initializing benchmark suite...', score: 0 })
     try {
-      const res = await window.flashgent.benchmark.run(selectedModel || undefined)
+      const res = await window.flashgent.benchmark.run({
+        model: selectedModel || undefined,
+        tier: selectedTier,
+        scenarioId: targetScenarioId,
+        concurrency
+      })
       if (!res.ok) {
         setRunning(false)
         setProgress(null)
@@ -82,9 +91,13 @@ export function BenchmarkView(): React.ReactElement {
   }
 
   const filteredScenarios = (activeReport?.scenarios || []).filter((sc) => {
-    if (tierFilter === 'all') return true
-    if (tierFilter === 'failed') return !sc.passed
-    return sc.tier === tierFilter
+    if (tierFilter === 'failed' && sc.passed) return false
+    if (tierFilter !== 'all' && tierFilter !== 'failed' && sc.tier !== tierFilter) return false
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      return sc.name.toLowerCase().includes(q) || sc.id.toLowerCase().includes(q)
+    }
+    return true
   })
 
   return (
@@ -95,15 +108,49 @@ export function BenchmarkView(): React.ReactElement {
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold text-ink">Benchmark Arena</h1>
             <span className="rounded bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
-              100-Point Standard
+              100-Point Standard (100 Scenarios)
             </span>
           </div>
           <p className="text-[12.5px] text-muted">
-            Evaluate coding precision, subagent planning, and reasoning on your local models.
+            Evaluate coding precision, subagent planning, architecture, and reasoning on your local models across 4 tiers.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Parallel Workers Concurrency */}
+          <div className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] text-muted">
+            <span className="text-[11px] uppercase font-semibold text-faint">Parallel:</span>
+            <select
+              value={concurrency}
+              onChange={(e) => setConcurrency(Number(e.target.value))}
+              disabled={running}
+              className="bg-transparent font-semibold text-ink outline-none cursor-pointer"
+            >
+              <option value={1}>1x (Sequential)</option>
+              <option value={2}>2x Parallel</option>
+              <option value={4}>4x Parallel</option>
+              <option value={8}>8x Parallel</option>
+            </select>
+          </div>
+
+          {/* Tier Run Filter */}
+          <div className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] text-muted">
+            <span className="text-[11px] uppercase font-semibold text-faint">Scope:</span>
+            <select
+              value={selectedTier}
+              onChange={(e) => setSelectedTier(e.target.value as any)}
+              disabled={running}
+              className="bg-transparent font-semibold text-ink outline-none cursor-pointer"
+            >
+              <option value="all">All Tiers (100)</option>
+              <option value="easy">Easy Only (50)</option>
+              <option value="medium">Medium Only (30)</option>
+              <option value="hard">Hard Only (15)</option>
+              <option value="hell">Hell Only (5)</option>
+            </select>
+          </div>
+
+          {/* Model Selector */}
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
@@ -118,6 +165,7 @@ export function BenchmarkView(): React.ReactElement {
             ))}
           </select>
 
+          {/* Run Button */}
           <button
             type="button"
             onClick={() => void startBenchmark()}
@@ -129,7 +177,7 @@ export function BenchmarkView(): React.ReactElement {
             {running ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Running ({progress?.index ?? 0}/{progress?.total ?? 30})...
+                Running ({progress?.index ?? 0}/{progress?.total ?? 100})...
               </>
             ) : (
               '⚡ Run Benchmark'
@@ -142,9 +190,9 @@ export function BenchmarkView(): React.ReactElement {
       {running && progress && (
         <div className="mt-4 rounded-lg border border-brand/30 bg-brand/5 p-4">
           <div className="flex items-center justify-between text-[12.5px] text-ink">
-            <span className="font-medium">Current scenario: {progress.scenario}</span>
-            <span className="text-muted">
-              {progress.index} / {progress.total} completed
+            <span className="font-medium truncate max-w-[70%]">Current: {progress.scenario}</span>
+            <span className="text-muted font-mono">
+              {progress.index} / {progress.total} completed ({concurrency}x workers)
             </span>
           </div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface">
@@ -159,53 +207,66 @@ export function BenchmarkView(): React.ReactElement {
       {/* Scoreboard Cards */}
       {activeReport && (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Overall Normalized Score Card */}
           <div className="flex flex-col justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
             <span className="text-[12px] font-medium uppercase tracking-wider text-muted">Overall Score</span>
             <div className="my-2 flex items-baseline gap-2">
               <span className="text-3xl font-extrabold text-ink">{activeReport.totalScore.toFixed(1)}</span>
               <span className="text-[14px] text-muted">/ 100 pts</span>
             </div>
-            <span className="text-[12px] text-brand font-medium">{activeReport.percentage.toFixed(1)}% Passing Rate</span>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-brand font-medium">{activeReport.percentage.toFixed(1)}% Standard</span>
+              {activeReport.rawScore !== undefined && (
+                <span className="text-faint font-mono text-[11px]">Raw: {activeReport.rawScore} / {activeReport.rawMaxScore || 185} pts</span>
+              )}
+            </div>
           </div>
 
+          {/* 4-Tier Accuracy Card */}
           <div className="flex flex-col justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
-            <span className="text-[12px] font-medium uppercase tracking-wider text-muted">Tier Accuracy</span>
-            <div className="my-1 space-y-1 text-[12px]">
+            <span className="text-[12px] font-medium uppercase tracking-wider text-muted">Tier Breakdown</span>
+            <div className="my-1 space-y-1 text-[11.5px]">
               <div className="flex justify-between">
-                <span className="text-muted">Easy (1pt):</span>
-                <span className="font-semibold text-ink">{activeReport.summary.easy.passed}/{activeReport.summary.easy.total}</span>
+                <span className="text-muted">Easy (50x0.5):</span>
+                <span className="font-semibold text-ink">{activeReport.summary.easy.passed}/{activeReport.summary.easy.total} ({activeReport.summary.easy.score.toFixed(1)} pts)</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted">Medium (3pts):</span>
-                <span className="font-semibold text-ink">{activeReport.summary.medium.passed}/{activeReport.summary.medium.total}</span>
+                <span className="text-muted">Medium (30x2.0):</span>
+                <span className="font-semibold text-ink">{activeReport.summary.medium.passed}/{activeReport.summary.medium.total} ({activeReport.summary.medium.score.toFixed(1)} pts)</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted">Hard (5pts):</span>
-                <span className="font-semibold text-ink">{activeReport.summary.hard.passed}/{activeReport.summary.hard.total}</span>
+                <span className="text-muted">Hard (15x4.0):</span>
+                <span className="font-semibold text-ink">{activeReport.summary.hard.passed}/{activeReport.summary.hard.total} ({activeReport.summary.hard.score.toFixed(1)} pts)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Hell (5x8.0):</span>
+                <span className="font-semibold text-rose-500">{activeReport.summary.hell?.passed ?? 0}/{activeReport.summary.hell?.total ?? 0} ({activeReport.summary.hell?.score.toFixed(1) ?? '0.0'} pts)</span>
               </div>
             </div>
-            <span className="text-[11.5px] text-faint">Base total: {activeReport.summary.easy.score + activeReport.summary.medium.score + activeReport.summary.hard.score} / 70 pts</span>
+            <span className="text-[11px] text-faint">Base tasks: 80 pts normalized</span>
           </div>
 
+          {/* Quality Modifiers Card */}
           <div className="flex flex-col justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
             <span className="text-[12px] font-medium uppercase tracking-wider text-muted">Quality Modifiers</span>
             <div className="my-1 space-y-1 text-[12px]">
               <div className="flex justify-between">
                 <span className="text-muted">Tool Syntax:</span>
-                <span className="font-semibold text-ok">+{activeReport.qualityModifiers.toolSyntaxPrecision.toFixed(1)} / 10</span>
+                <span className="font-semibold text-ok">+{activeReport.qualityModifiers.toolSyntaxPrecision.toFixed(1)} / 7.0</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Thinking Efficiency:</span>
-                <span className="font-semibold text-brand">+{activeReport.qualityModifiers.thinkingEfficiency.toFixed(1)} / 10</span>
+                <span className="font-semibold text-brand">+{activeReport.qualityModifiers.thinkingEfficiency.toFixed(1)} / 7.0</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Speed & Economy:</span>
-                <span className="font-semibold text-ink">+{activeReport.qualityModifiers.executionSpeedAndEconomy.toFixed(1)} / 10</span>
+                <span className="font-semibold text-ink">+{activeReport.qualityModifiers.executionSpeedAndEconomy.toFixed(1)} / 6.0</span>
               </div>
             </div>
-            <span className="text-[11.5px] text-faint">Bonus: +{activeReport.qualityModifiers.totalModifier.toFixed(1)} / 30 pts</span>
+            <span className="text-[11px] text-faint">Bonus: +{activeReport.qualityModifiers.totalModifier.toFixed(1)} / 20.0 pts</span>
           </div>
 
+          {/* Tested Model Details */}
           <div className="flex flex-col justify-between rounded-xl border border-line bg-surface p-4 shadow-sm">
             <span className="text-[12px] font-medium uppercase tracking-wider text-muted">Tested Model</span>
             <div className="my-2 truncate font-mono text-[13px] font-semibold text-ink" title={activeReport.modelName}>
@@ -216,8 +277,8 @@ export function BenchmarkView(): React.ReactElement {
         </div>
       )}
 
-      {/* Tabs: Latest Run vs Leaderboard */}
-      <div className="mt-6 flex items-center justify-between border-b border-line">
+      {/* Tabs & Search Filter Bar */}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-b border-line pb-2">
         <div className="flex gap-4">
           <button
             type="button"
@@ -226,7 +287,7 @@ export function BenchmarkView(): React.ReactElement {
               activeTab === 'latest' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink'
             }`}
           >
-            Scenario Breakdown ({activeReport?.scenarios.length ?? 0})
+            Scenario Breakdown ({filteredScenarios.length}/{activeReport?.scenarios.length ?? 0})
           </button>
           <button
             type="button"
@@ -240,8 +301,18 @@ export function BenchmarkView(): React.ReactElement {
         </div>
 
         {activeTab === 'latest' && (
-          <div className="flex items-center gap-1 pb-2">
-            {(['all', 'easy', 'medium', 'hard', 'failed'] as const).map((tier) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Search Input */}
+            <input
+              type="text"
+              placeholder="Search scenarios..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="rounded-md border border-line bg-surface px-2.5 py-1 text-[12px] text-ink placeholder-muted outline-none w-44"
+            />
+
+            {/* Tier Filter Pills */}
+            {(['all', 'easy', 'medium', 'hard', 'hell', 'failed'] as const).map((tier) => (
               <button
                 key={tier}
                 type="button"
@@ -282,7 +353,7 @@ export function BenchmarkView(): React.ReactElement {
                     >
                       {scenario.passed ? '✓' : '✗'}
                     </span>
-                    <span className="text-faint font-mono">#{idx + 1}</span>
+                    <span className="text-faint font-mono text-[11px]">#{idx + 1}</span>
                     <span className="font-medium text-ink">{scenario.name}</span>
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
@@ -290,7 +361,9 @@ export function BenchmarkView(): React.ReactElement {
                           ? 'bg-line/60 text-muted'
                           : scenario.tier === 'medium'
                             ? 'bg-brand/10 text-brand'
-                            : 'bg-warn/10 text-warn'
+                            : scenario.tier === 'hard'
+                              ? 'bg-warn/10 text-warn'
+                              : 'bg-rose-500/15 text-rose-600 font-bold'
                       }`}
                     >
                       {scenario.tier}
@@ -298,6 +371,18 @@ export function BenchmarkView(): React.ReactElement {
                   </div>
 
                   <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void startBenchmark(scenario.id)
+                      }}
+                      disabled={running}
+                      className="rounded px-2 py-0.5 text-[11px] font-medium text-brand hover:bg-brand/10 border border-brand/20 transition-colors"
+                      title="Run only this single scenario"
+                    >
+                      ▶ Test
+                    </button>
                     <span className="font-mono text-[12px] text-muted">{scenario.durationMs}ms</span>
                     <span className="font-semibold text-ink">
                       {scenario.earnedPoints} / {scenario.maxPoints} pts
@@ -339,7 +424,7 @@ export function BenchmarkView(): React.ReactElement {
             <thead className="border-b border-line bg-surface text-faint font-semibold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="p-3.5">Model</th>
-                <th className="p-3.5">Score</th>
+                <th className="p-3.5">Normalized Score</th>
                 <th className="p-3.5">Percentage</th>
                 <th className="p-3.5">Date</th>
                 <th className="p-3.5 text-right">Actions</th>

@@ -336,7 +336,7 @@ function BenchmarkPanel({
   report: {
     totalScore: number
     maxScore: number
-    scenarios: Array<{ tier: 'easy' | 'medium' | 'hard'; earnedPoints: number; maxPoints: number; passed: boolean }>
+    scenarios: Array<{ tier: 'easy' | 'medium' | 'hard' | 'hell'; earnedPoints: number; maxPoints: number; passed: boolean }>
   } | null
   onRun: (model?: string) => void
 }) {
