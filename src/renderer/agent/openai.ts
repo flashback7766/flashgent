@@ -1,4 +1,5 @@
 import type { ModelPreset, ToolDefinition } from '@shared/types'
+import { getAgentWorker } from '../workers/index.js'
 
 /**
  * Client for the OpenAI-compatible server LM Studio exposes.
@@ -176,10 +177,24 @@ export class OpenAIApiClient {
     onDelta: (delta: StreamDelta) => void
   ): Promise<{ outcome: StreamOutcome; error?: string }> {
     const requestId = globalThis.crypto.randomUUID()
-    const parser = new SseParser(onDelta)
+    const worker = getAgentWorker()
+
+    worker.postMessage({ type: 'SSE_START', id: requestId })
+
+    const workerHandler = (e: MessageEvent) => {
+      const data = e.data
+      if (data.id !== requestId) return
+      if (data.type === 'SSE_DELTA') {
+        onDelta(data.delta)
+      }
+      return
+    }
+    worker.addEventListener('message', workerHandler)
 
     const unsubscribe = window.flashgent.on.llmChunk((id, chunk) => {
-      if (id === requestId) parser.feed(chunk)
+      if (id === requestId) {
+        worker.postMessage({ type: 'SSE_CHUNK', id: requestId, chunk })
+      }
     })
 
     const onAbort = (): void => {
@@ -188,7 +203,9 @@ export class OpenAIApiClient {
     signal.addEventListener('abort', onAbort)
 
     try {
-      if (signal.aborted) return { outcome: parser.result(), error: 'Request cancelled.' }
+      if (signal.aborted) {
+        return { outcome: await this.getWorkerResult(worker, requestId), error: 'Request cancelled.' }
+      }
 
       const result = await window.flashgent.llm.stream({
         requestId,
@@ -197,149 +214,40 @@ export class OpenAIApiClient {
         body
       })
 
-      if (!result.ok) return { outcome: parser.result(), error: result.error }
+      const outcome = await this.getWorkerResult(worker, requestId)
+
+      if (!result.ok) return { outcome, error: result.error }
       if (!result.value.ok) {
         // An abort is the user's doing, not a failure to report.
-        if (result.value.aborted || signal.aborted) return { outcome: parser.result() }
-        return { outcome: parser.result(), error: result.value.error ?? 'The request failed.' }
+        if (result.value.aborted || signal.aborted) return { outcome }
+        return { outcome, error: result.value.error ?? 'The request failed.' }
       }
 
-      return { outcome: parser.result() }
+      return { outcome }
     } finally {
       signal.removeEventListener('abort', onAbort)
       unsubscribe()
-    }
-  }
-}
-
-/** Accumulates streamed tool-call fragments, which arrive split across chunks. */
-interface PartialToolCall {
-  id: string
-  name: string
-  arguments: string
-}
-
-/**
- * Incremental server-sent-events parser.
- *
- * Chunk boundaries fall anywhere, including mid-event and mid-JSON, so the
- * buffer is only consumed up to the last complete event.
- */
-class SseParser {
-  private buffer = ''
-  private text = ''
-  private reasoning = ''
-  private finishReason: string | null = null
-  private usage: StreamOutcome['usage']
-  private partials = new Map<number, PartialToolCall>()
-
-  constructor(private onDelta: (delta: StreamDelta) => void) {}
-
-  feed(chunk: string): void {
-    this.buffer += chunk
-
-    let boundary = this.buffer.indexOf('\n\n')
-    while (boundary !== -1) {
-      const rawEvent = this.buffer.slice(0, boundary)
-      this.buffer = this.buffer.slice(boundary + 2)
-      boundary = this.buffer.indexOf('\n\n')
-      this.consumeEvent(rawEvent)
+      worker.removeEventListener('message', workerHandler)
+      worker.postMessage({ type: 'SSE_ABORT', id: requestId }) // cleanup in case of error
     }
   }
 
-  private consumeEvent(rawEvent: string): void {
-    for (const line of rawEvent.split('\n')) {
-      if (!line.startsWith('data:')) continue
-      const payload = line.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
-
-      let chunk: SseChunk
-      try {
-        chunk = JSON.parse(payload) as SseChunk
-      } catch {
-        continue // A partial line: the next chunk completes it.
-      }
-
-      if (chunk.usage) {
-        this.usage = {
-          prompt: chunk.usage.prompt_tokens ?? 0,
-          completion: chunk.usage.completion_tokens ?? 0,
-          total: chunk.usage.total_tokens ?? 0
+  /**
+   * Prompts the worker to resolve its parsed chunk data into a final outcome and waits for the response.
+   */
+  private getWorkerResult(worker: Worker, requestId: string): Promise<StreamOutcome> {
+    return new Promise((resolve) => {
+      const handler = (e: MessageEvent) => {
+        if (e.data.id === requestId && e.data.type === 'SSE_OUTCOME') {
+          worker.removeEventListener('message', handler)
+          resolve(e.data.outcome)
+          return
         }
-        this.onDelta({ usage: this.usage })
+        return
       }
-
-      const choice = chunk.choices?.[0]
-      if (!choice) continue
-      if (choice.finish_reason) this.finishReason = choice.finish_reason
-
-      const delta = choice.delta
-      if (!delta) continue
-
-      if (delta.content) {
-        this.text += delta.content
-        this.onDelta({ text: delta.content })
-      }
-
-      // Reasoning models expose thinking under a couple of different keys.
-      const think = delta.reasoning_content ?? delta.reasoning
-      if (think) {
-        this.reasoning += think
-        this.onDelta({ reasoning: think })
-      }
-
-      for (const call of delta.tool_calls ?? []) {
-        const index = call.index ?? 0
-        const existing = this.partials.get(index) ?? { id: '', name: '', arguments: '' }
-        if (call.id) existing.id = call.id
-        if (call.function?.name) existing.name = call.function.name
-        if (call.function?.arguments) existing.arguments += call.function.arguments
-        this.partials.set(index, existing)
-      }
-    }
-  }
-
-  result(): StreamOutcome {
-    const toolCalls: ChatToolCall[] = [...this.partials.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([index, p]) => ({
-        id: p.id || `call_${index}`,
-        type: 'function' as const,
-        function: { name: p.name, arguments: p.arguments || '{}' }
-      }))
-      .filter((c) => c.function.name)
-
-    // Some servers omit finish_reason when they emit tool calls.
-    const finishReason = this.finishReason ?? (toolCalls.length ? 'tool_calls' : null)
-
-    const outcome: StreamOutcome = {
-      text: this.text,
-      reasoning: this.reasoning,
-      toolCalls,
-      finishReason
-    }
-    if (this.usage) outcome.usage = this.usage
-    return outcome
+      worker.addEventListener('message', handler)
+      worker.postMessage({ type: 'SSE_RESULT', id: requestId })
+    })
   }
 }
 
-interface SseChunk {
-  choices?: Array<{
-    finish_reason?: string | null
-    delta?: {
-      content?: string | null
-      reasoning?: string | null
-      reasoning_content?: string | null
-      tool_calls?: Array<{
-        index?: number
-        id?: string
-        function?: { name?: string; arguments?: string }
-      }>
-    }
-  }>
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    total_tokens?: number
-  }
-}

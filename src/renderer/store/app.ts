@@ -27,9 +27,8 @@ import { buildRegistry } from '../agent/tools/registry.js'
 import { createSubtaskTool, type SubtaskRunner } from '../agent/tools/subtask.js'
 import { makeNonce, wrapUntrusted } from '../agent/untrusted.js'
 import { api, must, orElse } from '../lib/ipc.js'
-import { formatTokens } from '../lib/format.js'
 import { recordPrefill } from '../lib/prefill.js'
-import { estimateTokens, estimateTurnTokens } from '../lib/tokens.js'
+import { getAgentWorker, terminateAgentWorker } from '../workers/index.js'
 
 export interface Toast {
   id: string
@@ -329,6 +328,9 @@ export const useApp = create<AppState>((set, get) => ({
     set((s) => ({ sessions: remaining, openTabs: s.openTabs.filter((t) => t !== id) }))
 
     if (get().activeSessionId === id) {
+      if (remaining.length === 0) {
+        terminateAgentWorker()
+      }
       const next = remaining[0]
       if (next) await get().selectSession(next.id)
       else await get().newSession()
@@ -492,6 +494,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   stop() {
     abortController?.abort()
+    abortController = null
     // Unblock the loop if it is parked on a prompt.
     permissionResolver?.('deny')
     continueResolver?.(false)
@@ -574,9 +577,7 @@ export const useApp = create<AppState>((set, get) => ({
     const { messages, activeSessionId, config } = get()
     const session = get().sessions.find((s) => s.id === activeSessionId)
     if (!session || !config) return
-
-    // Failing silently here was indistinguishable from a dead button, so every
-    // way out says why.
+    // Failing silently here was indistinguishable from a dead button, so every way out says why.
     if (get().streaming) {
       get().toast('info', 'Wait for the current turn to finish, then compact.')
       return
@@ -586,67 +587,40 @@ export const useApp = create<AppState>((set, get) => ({
       return
     }
 
-    const model = session.model ?? config.lastModel
-    if (!model) {
-      get().toast('error', 'Pick a model first — compacting needs one to write the summary.')
-      return
-    }
-
     set({ streaming: true, currentAction: 'Compacting the conversation' })
     try {
-      const beforeTokens =
-        get().usage?.prompt ?? messages.reduce((sum, m) => sum + estimateTurnTokens(m.blocks), 0)
+      const limit = get().contextTokens ?? 100000
+      const threshold = 0.8 // target usage
 
-      const transcript = messages
-        .map((m) => `${m.role}: ${plainText(m.blocks).slice(0, 4000)}`)
-        .join('\n\n')
-
-      const controller = new AbortController()
-      abortController = controller
-      const outcome = await clientFor(config).streamChat({
-        model,
-        preset: presetFor(config, session.presetId),
-        signal: controller.signal,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Summarise the conversation below so work can continue from the summary alone. ' +
-              'Keep decisions made, file paths touched, current state, and open questions. Be terse.'
-          },
-          { role: 'user', content: transcript }
-        ],
-        onDelta: () => undefined
+      const worker = getAgentWorker()
+      const result = await new Promise<{ messages: Message[]; compacted: boolean; droppedCount: number }>((resolve) => {
+        const id = Math.random().toString()
+        const handler = (e: MessageEvent) => {
+          if (e.data.id === id && e.data.type === 'COMPACT_MESSAGES_RESULT') {
+            worker.removeEventListener('message', handler)
+            resolve(e.data)
+            return
+          }
+          return
+        }
+        worker.addEventListener('message', handler)
+        worker.postMessage({ type: 'COMPACT_MESSAGES', id, messages, limit, threshold, usage: get().usage?.prompt })
       })
 
-      // A model that returns nothing but reasoning would otherwise replace the
-      // whole conversation with an empty note. Keep the history instead.
-      if (!outcome.text.trim()) {
-        get().toast('error', 'The model returned an empty summary — history left as it was.')
+      if (!result.compacted) {
+        get().toast('info', 'Context is already well within limits.')
         return
       }
 
-      const summaryTokens = estimateTokens(outcome.text)
-      const savedTokens = Math.max(0, beforeTokens - summaryTokens)
-      const savedStr = formatTokens(savedTokens)
-
-      const noticeText =
-        `⚡ **Compaction finished** — saved **${savedStr}** tokens (${savedTokens.toLocaleString()} tokens).\n\n` +
-        `*Summary of prior conversation:*\n${outcome.text}`
-
-      const summaryMessage: Message = {
-        id: uid(),
-        sessionId: session.id,
-        role: 'user',
-        blocks: [{ type: 'text', text: noticeText }],
-        model: null,
-        createdAt: Date.now()
+      const updatedMessages = result.messages
+      const summaryMessage = updatedMessages.find(m => m.blocks.some(b => b.type === 'text' && b.text.includes('Context compressed')))
+      
+      if (summaryMessage) {
+        must(await api().db.appendMessage(summaryMessage))
       }
 
-      must(await api().db.appendMessage(summaryMessage))
-      const updatedMessages = [...get().messages, summaryMessage]
       set({ messages: updatedMessages, usage: null })
-      get().toast('success', `Compaction finished — saved ${savedStr} tokens`)
+      get().toast('success', `Compaction finished — pruned ${result.droppedCount} messages.`)
     } catch (err) {
       get().toast('error', err instanceof Error ? err.message : String(err))
     } finally {
@@ -1117,20 +1091,20 @@ async function maybeAutoCompact(get: Getter): Promise<void> {
   // Use the server-reported prompt tokens if available — that is the actual
   // context the model loaded this turn, not an estimate.  Fall back to an
   // estimate that counts text + tool I/O across all messages.
-  const estimated = state.messages.reduce((sum, m) => {
-    return (
-      sum +
-      m.blocks.reduce((bSum, b) => {
-        if (b.type === 'text') return bSum + estimateTokens(b.text)
-        if (b.type === 'tool_use') {
-          const inp = JSON.stringify(b.input)
-          const res = b.result?.content ?? ''
-          return bSum + estimateTokens(inp) + estimateTokens(res)
-        }
-        return bSum
-      }, 0)
-    )
-  }, 1000)
+  const worker = getAgentWorker()
+  const estimated = await new Promise<number>((resolve) => {
+    const id = Math.random().toString()
+    const handler = (e: MessageEvent) => {
+      if (e.data.id === id && e.data.type === 'TOKENS_ESTIMATED') {
+        worker.removeEventListener('message', handler)
+        resolve(e.data.tokens)
+        return
+      }
+      return
+    }
+    worker.addEventListener('message', handler)
+    worker.postMessage({ type: 'ESTIMATE_TOKENS', id, messages: state.messages })
+  })
 
   // Prefer prompt tokens: they reflect the actual context window usage as
   // reported by the model server (not cumulative completions).
@@ -1184,12 +1158,7 @@ function sortSessions(a: Session, b: Session): number {
   return b.updatedAt - a.updatedAt
 }
 
-function plainText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { text: string }).text)
-    .join('\n')
-}
+
 
 /** One-line status for the activity indicator. */
 function describeAction(blocks: ContentBlock[]): string {
