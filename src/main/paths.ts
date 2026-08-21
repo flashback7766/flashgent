@@ -26,6 +26,11 @@ export function backupDir(): string {
 export function logDir(): string {
   return join(userDataDir(), 'logs')
 }
+export function migrationsDir(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'migrations')
+    : join(app.getAppPath(), 'src/main/db/migrations')
+}
 
 export function ensureDirs(): void {
   for (const dir of [HOME_DIR, SNIPPETS_DIR, userDataDir(), backupDir(), logDir()]) {

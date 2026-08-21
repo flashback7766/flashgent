@@ -498,7 +498,7 @@ export interface BenchmarkRunRecord {
   score: number
   maxScore: number
   percentage: number
-  reportJson: string
+  report: BenchmarkReport
   createdAt: number
 }
 

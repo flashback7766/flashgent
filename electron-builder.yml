@@ -17,6 +17,8 @@ files:
 extraResources:
   - from: resources/icon.png
     to: icon.png
+  - from: src/main/db/migrations
+    to: migrations
 
 # better-sqlite3 ships a native binding that must not be bundled into the asar.
 asarUnpack:

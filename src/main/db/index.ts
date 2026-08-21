@@ -1,40 +1,75 @@
 import Database from 'better-sqlite3'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { eq, desc, asc, and, gte, lte, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import type { SessionCreateInput, SessionSearchHit, SessionSearchQuery, Snippet } from '../../shared/ipc.js'
+import type {
+  SessionCreateInput,
+  SessionSearchHit,
+  SessionSearchQuery,
+  Snippet
+} from '../../shared/ipc.js'
 import type {
   BenchmarkReport,
   BenchmarkRunRecord,
   ContentBlock,
   FileSnapshot,
   Message,
-  Session,
-  ToolUseBlock
+  Session
 } from '../../shared/types.js'
 import { logger } from '../logger.js'
-import { backupDir, dbFile } from '../paths.js'
-import { migrate } from './schema.js'
+import { backupDir, dbFile, migrationsDir } from '../paths.js'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import {
+  sessionsTable,
+  messagesTable,
+  toolCallsTable,
+  snippetsTable,
+  benchmarkRunsTable,
+  fileSnapshotsTable,
+  messagesFtsTable
+} from './schema.js'
 
 const BACKUP_RETENTION_DAYS = 7
 
-let db: Database.Database | null = null
+let sqlite: Database.Database | null = null
+let db: ReturnType<typeof drizzle> | null = null
 
 export function openDatabase(): Database.Database {
-  if (db) return db
-  db = new Database(dbFile())
-  migrate(db)
+  if (sqlite) return sqlite
+  sqlite = new Database(dbFile())
+  db = drizzle(sqlite)
+  migrate(db, { migrationsFolder: migrationsDir() })
   void runDailyBackup()
-  return db
+  return sqlite
 }
 
 export function closeDatabase(): void {
-  db?.close()
+  sqlite?.close()
+  sqlite = null
   db = null
 }
 
-function handle(): Database.Database {
-  return db ?? openDatabase()
+function handle(): ReturnType<typeof drizzle> {
+  if (!db) {
+    openDatabase()
+  }
+  if (!db) throw new Error('Failed to initialize database')
+  return db
+}
+
+/**
+ * Drizzle ORM does not expose the native SQLite `.backup()` API, so we need
+ * this escape hatch to access the underlying better-sqlite3 instance when
+ * performing the daily backups.
+ */
+function raw(): Database.Database {
+  if (!sqlite) {
+    openDatabase()
+  }
+  if (!sqlite) throw new Error('Failed to initialize database')
+  return sqlite
 }
 
 // --- Backup ----------------------------------------------------------------
@@ -45,7 +80,7 @@ async function runDailyBackup(): Promise<void> {
   const target = join(backupDir(), `flashgent-${day}.db`)
   if (existsSync(target)) return
   try {
-    await handle().backup(target)
+    await raw().backup(target)
     logger.info(`database backed up to ${target}`)
   } catch (err) {
     logger.warn('database backup failed', String(err))
@@ -64,55 +99,45 @@ async function runDailyBackup(): Promise<void> {
 
 // --- Row mapping -----------------------------------------------------------
 
-interface SessionRow {
-  id: string
-  title: string
-  cwd: string
-  model: string | null
-  preset_id: string | null
-  effort: string
-  permission_mode: string
-  starred: number
-  forked_from: string | null
-  created_at: number
-  updated_at: number
+const toFileSnapshot = (r: typeof fileSnapshotsTable.$inferSelect): FileSnapshot => {
+  return {
+    id: r.id,
+    sessionId: r.sessionId,
+    messageId: r.messageId ?? null,
+    toolCallId: r.toolCallId ?? null,
+    path: r.path,
+    contentBefore: r.contentBefore ?? null,
+    contentAfter: r.contentAfter ?? null,
+    createdAt: r.createdAt
+  }
 }
 
-interface MessageRow {
-  id: string
-  session_id: string
-  seq: number
-  role: string
-  blocks: string
-  model: string | null
-  usage: string | null
-  created_at: number
+const toSession = (r: typeof sessionsTable.$inferSelect): Session => {
+  return {
+    id: r.id,
+    title: r.title,
+    cwd: r.cwd,
+    model: r.model,
+    presetId: r.presetId,
+    effort: r.effort,
+    permissionMode: r.permissionMode,
+    starred: r.starred === 1,
+    forkedFrom: r.forkedFrom,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt
+  }
 }
 
-const toSession = (r: SessionRow): Session => ({
-  id: r.id,
-  title: r.title,
-  cwd: r.cwd,
-  model: r.model,
-  presetId: r.preset_id,
-  effort: r.effort as Session['effort'],
-  permissionMode: r.permission_mode as Session['permissionMode'],
-  starred: r.starred === 1,
-  forkedFrom: r.forked_from,
-  createdAt: r.created_at,
-  updatedAt: r.updated_at
-})
-
-const toMessage = (r: MessageRow): Message => {
+const toMessage = (r: typeof messagesTable.$inferSelect): Message => {
   const message: Message = {
     id: r.id,
-    sessionId: r.session_id,
-    role: r.role as Message['role'],
-    blocks: JSON.parse(r.blocks) as ContentBlock[],
+    sessionId: r.sessionId,
+    role: r.role,
+    blocks: r.blocks,
     model: r.model,
-    createdAt: r.created_at
+    createdAt: r.createdAt
   }
-  if (r.usage) message.usage = JSON.parse(r.usage) as Message['usage']
+  if (r.usage) message.usage = r.usage
   return message
 }
 
@@ -130,8 +155,10 @@ function searchableText(blocks: ContentBlock[]): string {
 
 export function listSessions(): Session[] {
   const rows = handle()
-    .prepare('SELECT * FROM sessions ORDER BY starred DESC, updated_at DESC')
-    .all() as SessionRow[]
+    .select()
+    .from(sessionsTable)
+    .orderBy(desc(sessionsTable.starred), desc(sessionsTable.updatedAt))
+    .all()
   return rows.map(toSession)
 }
 
@@ -150,42 +177,56 @@ export function createSession(input: SessionCreateInput): Session {
     createdAt: now,
     updatedAt: now
   }
+
   handle()
-    .prepare(
-      `INSERT INTO sessions
-         (id, title, cwd, model, preset_id, effort, permission_mode, starred, forked_from, created_at, updated_at)
-       VALUES (@id, @title, @cwd, @model, @presetId, @effort, @permissionMode, 0, @forkedFrom, @createdAt, @updatedAt)`
-    )
-    .run(session)
+    .insert(sessionsTable)
+    .values({
+      id: session.id,
+      title: session.title,
+      cwd: session.cwd,
+      model: session.model,
+      presetId: session.presetId,
+      effort: session.effort,
+      permissionMode: session.permissionMode,
+      starred: 0,
+      forkedFrom: session.forkedFrom,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    })
+    .run()
+
   return session
 }
 
 export function updateSession(id: string, patch: Partial<Session>): Session {
-  const existing = handle().prepare('SELECT * FROM sessions WHERE id = ?').get(id) as
-    | SessionRow
-    | undefined
+  const existing = handle().select().from(sessionsTable).where(eq(sessionsTable.id, id)).get()
   if (!existing) throw new Error(`session ${id} not found`)
 
   const merged: Session = { ...toSession(existing), ...patch, id, updatedAt: Date.now() }
+
   handle()
-    .prepare(
-      `UPDATE sessions
-          SET title = @title, cwd = @cwd, model = @model, preset_id = @presetId,
-              effort = @effort, permission_mode = @permissionMode,
-              starred = @starredInt, updated_at = @updatedAt
-        WHERE id = @id`
-    )
-    .run({ ...merged, starredInt: merged.starred ? 1 : 0 })
+    .update(sessionsTable)
+    .set({
+      title: merged.title,
+      cwd: merged.cwd,
+      model: merged.model,
+      presetId: merged.presetId,
+      effort: merged.effort,
+      permissionMode: merged.permissionMode,
+      starred: merged.starred ? 1 : 0,
+      updatedAt: merged.updatedAt
+    })
+    .where(eq(sessionsTable.id, id))
+    .run()
+
   return merged
 }
 
 export function deleteSession(id: string): boolean {
-  const tx = handle().transaction(() => {
-    handle().prepare('DELETE FROM messages_fts WHERE session_id = ?').run(id)
-    // messages and tool_calls cascade from the sessions row.
-    handle().prepare('DELETE FROM sessions WHERE id = ?').run(id)
+  handle().transaction((tx) => {
+    tx.delete(messagesFtsTable).where(eq(messagesFtsTable.sessionId, id)).run()
+    tx.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
   })
-  tx()
   return true
 }
 
@@ -194,37 +235,39 @@ export function deleteSession(id: string): boolean {
  * session, leaving the original untouched.
  */
 export function forkSession(id: string, uptoMessageId: string): Session {
-  const source = handle().prepare('SELECT * FROM sessions WHERE id = ?').get(id) as
-    | SessionRow
-    | undefined
+  const source = handle().select().from(sessionsTable).where(eq(sessionsTable.id, id)).get()
   if (!source) throw new Error(`session ${id} not found`)
 
   const cutoff = handle()
-    .prepare('SELECT seq FROM messages WHERE id = ? AND session_id = ?')
-    .get(uptoMessageId, id) as { seq: number } | undefined
+    .select({ seq: messagesTable.seq })
+    .from(messagesTable)
+    .where(and(eq(messagesTable.id, uptoMessageId), eq(messagesTable.sessionId, id)))
+    .get()
   if (!cutoff) throw new Error(`message ${uptoMessageId} not found in session ${id}`)
 
   const fork = createSession({
     title: `${source.title} (fork)`,
     cwd: source.cwd,
     model: source.model,
-    presetId: source.preset_id,
-    effort: source.effort as Session['effort'],
-    permissionMode: source.permission_mode as Session['permissionMode'],
+    presetId: source.presetId,
+    effort: source.effort,
+    permissionMode: source.permissionMode,
     forkedFrom: id
   })
 
   const rows = handle()
-    .prepare('SELECT * FROM messages WHERE session_id = ? AND seq <= ? ORDER BY seq')
-    .all(id, cutoff.seq) as MessageRow[]
+    .select()
+    .from(messagesTable)
+    .where(and(eq(messagesTable.sessionId, id), lte(messagesTable.seq, cutoff.seq)))
+    .orderBy(asc(messagesTable.seq))
+    .all()
 
-  const tx = handle().transaction(() => {
+  handle().transaction(() => {
     for (const row of rows) {
       const message = toMessage(row)
       appendMessage({ ...message, id: randomUUID(), sessionId: fork.id })
     }
   })
-  tx()
   return fork
 }
 
@@ -232,174 +275,200 @@ export function forkSession(id: string, uptoMessageId: string): Session {
 
 export function listMessages(sessionId: string): Message[] {
   const rows = handle()
-    .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY seq')
-    .all(sessionId) as MessageRow[]
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.sessionId, sessionId))
+    .orderBy(asc(messagesTable.seq))
+    .all()
   return rows.map(toMessage)
 }
 
 export function appendMessage(message: Message): Message {
-  const d = handle()
-  const tx = d.transaction(() => {
-    const next = d
-      .prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM messages WHERE session_id = ?')
-      .get(message.sessionId) as { seq: number }
+  handle().transaction((tx) => {
+    const nextRow = tx
+      .select({ seq: sql<number>`COALESCE(MAX(${messagesTable.seq}), 0) + 1` })
+      .from(messagesTable)
+      .where(eq(messagesTable.sessionId, message.sessionId))
+      .get()
+    const nextSeq = nextRow?.seq ?? 1
 
-    d.prepare(
-      `INSERT INTO messages (id, session_id, seq, role, blocks, model, usage, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      message.id,
-      message.sessionId,
-      next.seq,
-      message.role,
-      JSON.stringify(message.blocks),
-      message.model,
-      message.usage ? JSON.stringify(message.usage) : null,
-      message.createdAt
-    )
+    tx.insert(messagesTable)
+      .values({
+        id: message.id,
+        sessionId: message.sessionId,
+        seq: nextSeq,
+        role: message.role,
+        blocks: message.blocks,
+        model: message.model,
+        usage: message.usage ?? null,
+        createdAt: message.createdAt
+      })
+      .run()
 
     indexMessage(message)
     syncToolCalls(message)
-    d.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(
-      message.createdAt,
-      message.sessionId
-    )
+
+    tx.update(sessionsTable)
+      .set({ updatedAt: message.createdAt })
+      .where(eq(sessionsTable.id, message.sessionId))
+      .run()
   })
-  tx()
   return message
 }
 
 export function updateMessage(id: string, patch: Partial<Message>): Message {
-  const d = handle()
-  const row = d.prepare('SELECT * FROM messages WHERE id = ?').get(id) as MessageRow | undefined
+  const row = handle().select().from(messagesTable).where(eq(messagesTable.id, id)).get()
   if (!row) throw new Error(`message ${id} not found`)
 
   const merged: Message = { ...toMessage(row), ...patch, id }
-  const tx = d.transaction(() => {
-    d.prepare('UPDATE messages SET blocks = ?, model = ?, usage = ? WHERE id = ?').run(
-      JSON.stringify(merged.blocks),
-      merged.model,
-      merged.usage ? JSON.stringify(merged.usage) : null,
-      id
-    )
+  handle().transaction((tx) => {
+    tx.update(messagesTable)
+      .set({
+        blocks: merged.blocks,
+        model: merged.model,
+        usage: merged.usage ?? null
+      })
+      .where(eq(messagesTable.id, id))
+      .run()
+
     indexMessage(merged)
     syncToolCalls(merged)
-    d.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(Date.now(), merged.sessionId)
+
+    tx.update(sessionsTable)
+      .set({ updatedAt: Date.now() })
+      .where(eq(sessionsTable.id, merged.sessionId))
+      .run()
   })
-  tx()
   return merged
 }
 
 /** Drop `messageId` and everything after it — the rewind operation. */
 export function truncateFrom(sessionId: string, messageId: string): number {
-  const d = handle()
-  const anchor = d
-    .prepare('SELECT seq FROM messages WHERE id = ? AND session_id = ?')
-    .get(messageId, sessionId) as { seq: number } | undefined
+  const anchor = handle()
+    .select({ seq: messagesTable.seq })
+    .from(messagesTable)
+    .where(and(eq(messagesTable.id, messageId), eq(messagesTable.sessionId, sessionId)))
+    .get()
   if (!anchor) return 0
 
-  const doomed = d
-    .prepare('SELECT id FROM messages WHERE session_id = ? AND seq >= ?')
-    .all(sessionId, anchor.seq) as Array<{ id: string }>
+  const doomed = handle()
+    .select({ id: messagesTable.id })
+    .from(messagesTable)
+    .where(and(eq(messagesTable.sessionId, sessionId), gte(messagesTable.seq, anchor.seq)))
+    .all()
 
-  const tx = d.transaction(() => {
+  handle().transaction((tx) => {
     for (const { id } of doomed) {
-      d.prepare('DELETE FROM messages_fts WHERE message_id = ?').run(id)
+      tx.delete(messagesFtsTable).where(eq(messagesFtsTable.messageId, id)).run()
     }
-    d.prepare('DELETE FROM messages WHERE session_id = ? AND seq >= ?').run(sessionId, anchor.seq)
+    tx.delete(messagesTable)
+      .where(and(eq(messagesTable.sessionId, sessionId), gte(messagesTable.seq, anchor.seq)))
+      .run()
   })
-  tx()
   return doomed.length
 }
 
 function indexMessage(message: Message): void {
-  const d = handle()
-  d.prepare('DELETE FROM messages_fts WHERE message_id = ?').run(message.id)
-  d.prepare('INSERT INTO messages_fts (body, message_id, session_id) VALUES (?, ?, ?)').run(
-    searchableText(message.blocks),
-    message.id,
-    message.sessionId
-  )
+  handle().delete(messagesFtsTable).where(eq(messagesFtsTable.messageId, message.id)).run()
+  handle()
+    .insert(messagesFtsTable)
+    .values({
+      body: searchableText(message.blocks),
+      messageId: message.id,
+      sessionId: message.sessionId
+    })
+    .run()
 }
 
 function syncToolCalls(message: Message): void {
-  const d = handle()
-  d.prepare('DELETE FROM tool_calls WHERE message_id = ?').run(message.id)
-  // OR REPLACE: a model can emit two calls carrying the same id in one turn,
-  // and the last write is the one that matters.
-  const insert = d.prepare(
-    `INSERT OR REPLACE INTO tool_calls
-       (id, message_id, session_id, name, input, status, result, duration_ms, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
+  handle().delete(toolCallsTable).where(eq(toolCallsTable.messageId, message.id)).run()
+
   for (const block of message.blocks) {
     if (block.type !== 'tool_use') continue
-    const tool = block as ToolUseBlock
-    insert.run(
-      tool.id,
-      message.id,
-      message.sessionId,
-      tool.name,
-      JSON.stringify(tool.input),
-      tool.status,
-      tool.result ? JSON.stringify(tool.result) : null,
-      tool.durationMs ?? null,
-      message.createdAt
-    )
+
+    // SQLite INSERT OR REPLACE in drizzle
+    handle()
+      .insert(toolCallsTable)
+      .values({
+        id: block.id,
+        messageId: message.id,
+        sessionId: message.sessionId,
+        name: block.name,
+        input: block.input,
+        status: block.status,
+        result: block.result ?? null,
+        durationMs: block.durationMs ?? null,
+        createdAt: message.createdAt
+      })
+      .onConflictDoUpdate({
+        target: [toolCallsTable.messageId, toolCallsTable.id],
+        set: {
+          sessionId: message.sessionId,
+          name: block.name,
+          input: block.input,
+          status: block.status,
+          result: block.result ?? null,
+          durationMs: block.durationMs ?? null,
+          createdAt: message.createdAt
+        }
+      })
+      .run()
   }
 }
 
 // --- Search ----------------------------------------------------------------
 
 export function search(query: SessionSearchQuery): SessionSearchHit[] {
-  const limit = Math.min(query.limit ?? 50, 200)
-  const clauses: string[] = []
-  const params: unknown[] = []
+  const limitCount = Math.min(query.limit ?? 50, 200)
+  const d = handle()
 
-  let from = 'sessions s'
   if (query.text?.trim()) {
-    from = `messages_fts f
-            JOIN messages m ON m.id = f.message_id
-            JOIN sessions s ON s.id = m.session_id`
-    clauses.push('messages_fts MATCH ?')
-    params.push(escapeFts(query.text.trim()))
+    const rawSearch = escapeFts(query.text.trim())
+
+    let q = sql<SessionSearchHit>`SELECT s.id AS sessionId, s.title AS title, s.updated_at AS createdAt,
+              snippet(messages_fts, 0, '[', ']', '…', 12) AS snippet
+         FROM messages_fts f
+         JOIN messages m ON m.id = f.message_id
+         JOIN sessions s ON s.id = m.session_id
+        WHERE messages_fts MATCH ${rawSearch}`
+
+    if (query.model) {
+      q = sql`${q} AND s.model = ${query.model}`
+    }
+    if (query.from !== undefined) {
+      q = sql`${q} AND s.updated_at >= ${query.from}`
+    }
+    if (query.to !== undefined) {
+      q = sql`${q} AND s.updated_at <= ${query.to}`
+    }
+
+    q = sql`${q} ORDER BY rank LIMIT ${limitCount}`
+
+    return handle().all(q)
   }
+
+  // Without FTS we can use query builder
+  let q = d
+    .select({
+      sessionId: sessionsTable.id,
+      title: sessionsTable.title,
+      createdAt: sessionsTable.updatedAt,
+      snippet: sql<string>`''`
+    })
+    .from(sessionsTable)
+    .$dynamic()
+
   if (query.model) {
-    clauses.push('s.model = ?')
-    params.push(query.model)
+    q = q.where(eq(sessionsTable.model, query.model))
   }
   if (query.from !== undefined) {
-    clauses.push('s.updated_at >= ?')
-    params.push(query.from)
+    q = q.where(gte(sessionsTable.updatedAt, query.from))
   }
   if (query.to !== undefined) {
-    clauses.push('s.updated_at <= ?')
-    params.push(query.to)
+    q = q.where(lte(sessionsTable.updatedAt, query.to))
   }
 
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
-
-  if (query.text?.trim()) {
-    const rows = handle()
-      .prepare(
-        `SELECT s.id AS sessionId, s.title AS title, s.updated_at AS createdAt,
-                snippet(messages_fts, 0, '[', ']', '…', 12) AS snippet
-           FROM ${from} ${where}
-          ORDER BY rank
-          LIMIT ?`
-      )
-      .all(...params, limit) as SessionSearchHit[]
-    return rows
-  }
-
-  return handle()
-    .prepare(
-      `SELECT s.id AS sessionId, s.title AS title, s.updated_at AS createdAt, '' AS snippet
-         FROM ${from} ${where}
-        ORDER BY s.updated_at DESC
-        LIMIT ?`
-    )
-    .all(...params, limit) as SessionSearchHit[]
+  return q.orderBy(desc(sessionsTable.updatedAt)).limit(limitCount).all()
 }
 
 /**
@@ -410,34 +479,49 @@ function escapeFts(text: string): string {
   return text
     .split(/\s+/)
     .filter(Boolean)
-    .map((term) => `"${term.replace(/"/g, '""')}"`)
+    .map((term) => {
+      return `"${term.replace(/"/g, '""')}"`
+    })
     .join(' ')
 }
 
 // --- Snippets --------------------------------------------------------------
 
 export function listSnippets(): Snippet[] {
-  return handle()
-    .prepare(
-      `SELECT id, title, language, code, session_id AS sessionId, created_at AS createdAt
-         FROM snippets ORDER BY created_at DESC`
-    )
-    .all() as Snippet[]
+  const rows = handle().select().from(snippetsTable).orderBy(desc(snippetsTable.createdAt)).all()
+
+  return rows.map((r) => {
+    return {
+      id: r.id,
+      title: r.title,
+      language: r.language,
+      code: r.code,
+      sessionId: r.sessionId ?? null,
+      createdAt: r.createdAt
+    }
+  })
 }
 
 export function createSnippet(input: Omit<Snippet, 'id' | 'createdAt'>): Snippet {
   const snippet: Snippet = { ...input, id: randomUUID(), createdAt: Date.now() }
+
   handle()
-    .prepare(
-      `INSERT INTO snippets (id, title, language, code, session_id, created_at)
-       VALUES (@id, @title, @language, @code, @sessionId, @createdAt)`
-    )
-    .run(snippet)
+    .insert(snippetsTable)
+    .values({
+      id: snippet.id,
+      title: snippet.title,
+      language: snippet.language,
+      code: snippet.code,
+      sessionId: snippet.sessionId,
+      createdAt: snippet.createdAt
+    })
+    .run()
+
   return snippet
 }
 
 export function deleteSnippet(id: string): boolean {
-  handle().prepare('DELETE FROM snippets WHERE id = ?').run(id)
+  handle().delete(snippetsTable).where(eq(snippetsTable.id, id)).run()
   return true
 }
 
@@ -450,32 +534,48 @@ export function saveBenchmarkRun(report: BenchmarkReport): BenchmarkRunRecord {
     score: report.totalScore,
     maxScore: report.maxScore,
     percentage: report.percentage,
-    reportJson: JSON.stringify(report),
+    report: report,
     createdAt: Date.now()
   }
 
   handle()
-    .prepare(
-      `INSERT INTO benchmark_runs (id, model, score, max_score, percentage, report_json, created_at)
-       VALUES (@id, @model, @score, @maxScore, @percentage, @reportJson, @createdAt)`
-    )
-    .run(record)
+    .insert(benchmarkRunsTable)
+    .values({
+      id: record.id,
+      model: record.model,
+      score: record.score,
+      maxScore: record.maxScore,
+      percentage: record.percentage,
+      report: record.report,
+      createdAt: record.createdAt
+    })
+    .run()
 
   return record
 }
 
 export function listBenchmarkRuns(): BenchmarkRunRecord[] {
   const rows = handle()
-    .prepare(
-      `SELECT id, model, score, max_score AS maxScore, percentage, report_json AS reportJson, created_at AS createdAt
-         FROM benchmark_runs ORDER BY created_at DESC`
-    )
-    .all() as BenchmarkRunRecord[]
-  return rows
+    .select()
+    .from(benchmarkRunsTable)
+    .orderBy(desc(benchmarkRunsTable.createdAt))
+    .all()
+
+  return rows.map((r) => {
+    return {
+      id: r.id,
+      model: r.model,
+      score: r.score,
+      maxScore: r.maxScore,
+      percentage: r.percentage,
+      report: r.report,
+      createdAt: r.createdAt
+    }
+  })
 }
 
 export function deleteBenchmarkRun(id: string): boolean {
-  handle().prepare('DELETE FROM benchmark_runs WHERE id = ?').run(id)
+  handle().delete(benchmarkRunsTable).where(eq(benchmarkRunsTable.id, id)).run()
   return true
 }
 
@@ -489,38 +589,40 @@ export function saveFileSnapshot(snapshot: Omit<FileSnapshot, 'id' | 'createdAt'
   }
 
   handle()
-    .prepare(
-      `INSERT INTO file_snapshots (id, session_id, message_id, tool_call_id, path, content_before, content_after, created_at)
-       VALUES (@id, @sessionId, @messageId, @toolCallId, @path, @contentBefore, @contentAfter, @createdAt)`
-    )
-    .run(record)
+    .insert(fileSnapshotsTable)
+    .values({
+      id: record.id,
+      sessionId: record.sessionId,
+      messageId: record.messageId,
+      toolCallId: record.toolCallId,
+      path: record.path,
+      contentBefore: record.contentBefore,
+      contentAfter: record.contentAfter,
+      createdAt: record.createdAt
+    })
+    .run()
 
   return record
 }
 
 export function listFileSnapshots(sessionId: string): FileSnapshot[] {
-  return handle()
-    .prepare(
-      `SELECT id, session_id AS sessionId, message_id AS messageId, tool_call_id AS toolCallId,
-              path, content_before AS contentBefore, content_after AS contentAfter, created_at AS createdAt
-         FROM file_snapshots WHERE session_id = ? ORDER BY created_at ASC`
-    )
-    .all(sessionId) as FileSnapshot[]
+  const rows = handle()
+    .select()
+    .from(fileSnapshotsTable)
+    .where(eq(fileSnapshotsTable.sessionId, sessionId))
+    .orderBy(asc(fileSnapshotsTable.createdAt))
+    .all()
+  return rows.map(toFileSnapshot)
 }
 
 export function getFileSnapshot(id: string): FileSnapshot | null {
-  const row = handle()
-    .prepare(
-      `SELECT id, session_id AS sessionId, message_id AS messageId, tool_call_id AS toolCallId,
-              path, content_before AS contentBefore, content_after AS contentAfter, created_at AS createdAt
-         FROM file_snapshots WHERE id = ?`
-    )
-    .get(id) as FileSnapshot | undefined
-  return row ?? null
+  const row = handle().select().from(fileSnapshotsTable).where(eq(fileSnapshotsTable.id, id)).get()
+
+  if (!row) return null
+  return toFileSnapshot(row)
 }
 
 export function deleteFileSnapshotsForSession(sessionId: string): boolean {
-  handle().prepare('DELETE FROM file_snapshots WHERE session_id = ?').run(sessionId)
+  handle().delete(fileSnapshotsTable).where(eq(fileSnapshotsTable.sessionId, sessionId)).run()
   return true
 }
-

@@ -37,7 +37,7 @@ export function BenchmarkView(): React.ReactElement {
       setHistory(res.value)
       if (res.value.length > 0 && !activeReport) {
         try {
-          const firstReport = JSON.parse(res.value[0]?.reportJson || '') as BenchmarkReport
+          const firstReport = res.value[0]?.report ?? null
           setActiveReport(firstReport)
         } catch {
           // ignore corrupted json
@@ -532,7 +532,7 @@ export function BenchmarkView(): React.ReactElement {
                       type="button"
                       onClick={() => {
                         try {
-                          const rep = JSON.parse(record.reportJson) as BenchmarkReport
+                          const rep = record.report
                           setActiveReport(rep)
                           setActiveTab('latest')
                         } catch {

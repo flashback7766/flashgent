@@ -1,161 +1,84 @@
-import type BetterSqlite3 from 'better-sqlite3'
-import { logger } from '../logger.js'
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import type {
+  BenchmarkReport,
+  ContentBlock,
+  EffortLevel,
+  Message,
+  PermissionMode,
+  ToolResult
+} from '../../shared/types.js'
 
-/**
- * Ordered list of migrations. Index + 1 is the resulting `user_version`, so a
- * migration is only ever appended — never edited once shipped.
- */
-const MIGRATIONS: Array<(db: BetterSqlite3.Database) => void> = [
-  // v1 — initial schema
-  (db) => {
-    db.exec(`
-      CREATE TABLE sessions (
-        id          TEXT PRIMARY KEY,
-        title       TEXT NOT NULL,
-        cwd         TEXT NOT NULL,
-        model       TEXT,
-        preset_id   TEXT,
-        starred     INTEGER NOT NULL DEFAULT 0,
-        forked_from TEXT,
-        created_at  INTEGER NOT NULL,
-        updated_at  INTEGER NOT NULL
-      );
+export const sessionsTable = sqliteTable('sessions', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  cwd: text('cwd').notNull(),
+  model: text('model'),
+  presetId: text('preset_id'),
+  effort: text('effort').$type<EffortLevel>().notNull().default('high'),
+  permissionMode: text('permission_mode').$type<PermissionMode>().notNull().default('manual'),
+  starred: integer('starred').notNull().default(0),
+  forkedFrom: text('forked_from'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull()
+})
 
-      CREATE TABLE messages (
-        id         TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        seq        INTEGER NOT NULL,
-        role       TEXT NOT NULL,
-        blocks     TEXT NOT NULL,
-        model      TEXT,
-        usage      TEXT,
-        created_at INTEGER NOT NULL
-      );
-      CREATE INDEX idx_messages_session ON messages(session_id, seq);
+export const messagesTable = sqliteTable('messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  seq: integer('seq').notNull(),
+  role: text('role').$type<Message['role']>().notNull(),
+  blocks: text('blocks', { mode: 'json' }).$type<ContentBlock[]>().notNull(),
+  model: text('model'),
+  usage: text('usage', { mode: 'json' }).$type<Message['usage']>(),
+  createdAt: integer('created_at').notNull()
+})
 
-      -- Tool calls are denormalised out of the block array so they can be
-      -- queried on their own (profiling, "what did the agent run" views).
-      CREATE TABLE tool_calls (
-        id          TEXT PRIMARY KEY,
-        message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-        session_id  TEXT NOT NULL,
-        name        TEXT NOT NULL,
-        input       TEXT NOT NULL,
-        status      TEXT NOT NULL,
-        result      TEXT,
-        duration_ms INTEGER,
-        created_at  INTEGER NOT NULL
-      );
-      CREATE INDEX idx_tool_calls_session ON tool_calls(session_id, created_at);
-      CREATE INDEX idx_tool_calls_message ON tool_calls(message_id);
+export const toolCallsTable = sqliteTable('tool_calls', {
+  rowId: integer('row_id').primaryKey({ autoIncrement: true }),
+  id: text('id').notNull(),
+  messageId: text('message_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  name: text('name').notNull(),
+  input: text('input', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  status: text('status').notNull(),
+  result: text('result', { mode: 'json' }).$type<ToolResult>(),
+  durationMs: integer('duration_ms'),
+  createdAt: integer('created_at').notNull()
+})
 
-      CREATE TABLE snippets (
-        id         TEXT PRIMARY KEY,
-        title      TEXT NOT NULL,
-        language   TEXT NOT NULL,
-        code       TEXT NOT NULL,
-        session_id TEXT,
-        created_at INTEGER NOT NULL
-      );
+export const snippetsTable = sqliteTable('snippets', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  language: text('language').notNull(),
+  code: text('code').notNull(),
+  sessionId: text('session_id'),
+  createdAt: integer('created_at').notNull()
+})
 
-      CREATE VIRTUAL TABLE messages_fts USING fts5(
-        body,
-        message_id UNINDEXED,
-        session_id UNINDEXED,
-        tokenize = 'unicode61'
-      );
-    `)
-  },
+export const benchmarkRunsTable = sqliteTable('benchmark_runs', {
+  id: text('id').primaryKey(),
+  model: text('model').notNull(),
+  score: real('score').notNull(),
+  maxScore: real('max_score').notNull(),
+  percentage: real('percentage').notNull(),
+  report: text('report_json', { mode: 'json' }).$type<BenchmarkReport>().notNull(),
+  createdAt: integer('created_at').notNull()
+})
 
-  // v2 — a tool-call id is unique within its message, not globally.
-  //
-  // Both id sources repeat across messages: the text protocol numbers calls
-  // per run (`react_1_0`), and models routinely restart native ids at
-  // `call_0` on every turn. The original global primary key made the second
-  // assistant message in a session fail to save.
-  (db) => {
-    db.exec(`
-      CREATE TABLE tool_calls_new (
-        row_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        id          TEXT NOT NULL,
-        message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-        session_id  TEXT NOT NULL,
-        name        TEXT NOT NULL,
-        input       TEXT NOT NULL,
-        status      TEXT NOT NULL,
-        result      TEXT,
-        duration_ms INTEGER,
-        created_at  INTEGER NOT NULL,
-        UNIQUE (message_id, id)
-      );
+export const fileSnapshotsTable = sqliteTable('file_snapshots', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  messageId: text('message_id'),
+  toolCallId: text('tool_call_id'),
+  path: text('path').notNull(),
+  contentBefore: text('content_before'),
+  contentAfter: text('content_after'),
+  createdAt: integer('created_at').notNull()
+})
 
-      INSERT INTO tool_calls_new
-        (id, message_id, session_id, name, input, status, result, duration_ms, created_at)
-      SELECT id, message_id, session_id, name, input, status, result, duration_ms, created_at
-        FROM tool_calls;
-
-      DROP TABLE tool_calls;
-      ALTER TABLE tool_calls_new RENAME TO tool_calls;
-
-      CREATE INDEX idx_tool_calls_session ON tool_calls(session_id, created_at);
-      CREATE INDEX idx_tool_calls_message ON tool_calls(message_id);
-    `)
-  },
-
-  // v3 — effort and permission mode are per session, so switching projects
-  // does not carry a "bypass everything" setting across with it.
-  (db) => {
-    db.exec(`
-      ALTER TABLE sessions ADD COLUMN effort TEXT NOT NULL DEFAULT 'high';
-      ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'manual';
-    `)
-  },
-
-  // v4 — benchmark arena runs and file snapshots time machine
-  (db) => {
-    db.exec(`
-      CREATE TABLE benchmark_runs (
-        id          TEXT PRIMARY KEY,
-        model       TEXT NOT NULL,
-        score       REAL NOT NULL,
-        max_score   REAL NOT NULL,
-        percentage  REAL NOT NULL,
-        report_json TEXT NOT NULL,
-        created_at  INTEGER NOT NULL
-      );
-      CREATE INDEX idx_benchmark_runs_time ON benchmark_runs(created_at DESC);
-
-      CREATE TABLE file_snapshots (
-        id             TEXT PRIMARY KEY,
-        session_id     TEXT NOT NULL,
-        message_id     TEXT,
-        tool_call_id   TEXT,
-        path           TEXT NOT NULL,
-        content_before TEXT,
-        content_after  TEXT,
-        created_at     INTEGER NOT NULL
-      );
-      CREATE INDEX idx_file_snapshots_session ON file_snapshots(session_id, created_at);
-      CREATE INDEX idx_file_snapshots_message ON file_snapshots(message_id);
-    `)
-  }
-]
-
-export function migrate(db: BetterSqlite3.Database): void {
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-
-  const current = db.pragma('user_version', { simple: true }) as number
-  if (current >= MIGRATIONS.length) return
-
-  for (let version = current; version < MIGRATIONS.length; version++) {
-    const step = MIGRATIONS[version]
-    if (!step) continue
-    logger.info(`applying database migration ${version + 1}`)
-    const run = db.transaction(() => {
-      step(db)
-      db.pragma(`user_version = ${version + 1}`)
-    })
-    run()
-  }
-}
+export const messagesFtsTable = sqliteTable('messages_fts', {
+  body: text('body'),
+  messageId: text('message_id'),
+  sessionId: text('session_id'),
+  rank: real('rank')
+})
