@@ -7,6 +7,7 @@
  */
 
 export type Role = 'user' | 'assistant' | 'system'
+export type AgentRole = 'architect' | 'engineer'
 
 export interface TextBlock {
   type: 'text'
@@ -72,6 +73,8 @@ export interface Message {
   id: string
   sessionId: string
   role: Role
+  agent?: AgentRole
+  author?: string
   blocks: ContentBlock[]
   /** Model that produced this message; null for user messages. */
   model: string | null

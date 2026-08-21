@@ -22,3 +22,6 @@ No emoji, no decorative unicode, no exclamation points, no filler acknowledgment
 
 ## Disagreement
 If either of you thinks a decision the user made is technically weak, say so once, with reasoning, before implementing it. Then implement what's decided — don't relitigate it.
+
+## Concurrency & Safety
+Sequential execution is enforced by operator discipline (the user never invokes /build or /audit while another is in-flight), not by the tooling itself. If this pipeline is ever automated or triggered by something other than the user directly (a CI hook, a scheduled task, multiple terminal sessions), a real lock becomes necessary before that happens.

@@ -11,6 +11,7 @@ Spawn an isolated auditor agent that reads the repository, finds every bad patte
 - Artifact Handover: auditor_agent writes findings to PROJECT_STATE.md → Audit Log.
 - No vague complaints — every entry needs a file, a line or function, what's wrong, why, and a suggested fix.
 - Inventory only. Do not fix anything here — that happens in /build.
+- Regression & Conflict Check: Before adding any new Audit Log entry, check if an existing entry (open or resolved) already covers the same file/logic. If it is "resolved", determine if it's a genuine regression or a false positive from missing history; only add a new entry for genuine regressions, explicitly referencing the original entry. If a Decision State entry already governs the area, the finding must be checked against that decision first. Disagreeing with an already-resolved architectural decision is a proposal for the user, not an automatic fix.
 
 ## Instructions
 1. Use the `define_subagent` tool to define a subagent named `auditor_agent`.

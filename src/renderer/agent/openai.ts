@@ -204,7 +204,10 @@ export class OpenAIApiClient {
 
     try {
       if (signal.aborted) {
-        return { outcome: await this.getWorkerResult(worker, requestId), error: 'Request cancelled.' }
+        return {
+          outcome: await this.getWorkerResult(worker, requestId),
+          error: 'Request cancelled.'
+        }
       }
 
       const result = await window.flashgent.llm.stream({
@@ -250,4 +253,3 @@ export class OpenAIApiClient {
     })
   }
 }
-

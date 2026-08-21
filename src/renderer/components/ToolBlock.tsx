@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { formatDuration } from '../lib/format.js'
 import { useApp } from '../store/app.js'
 import { Markdown } from './Markdown.js'
+import { EngineerIcon } from './MessageView.js'
 
 const STATUS_DOT: Record<ToolUseBlock['status'], string> = {
   pending: 'bg-faint',
@@ -74,6 +75,7 @@ export function ToolBlockView({ block }: { block: ToolUseBlock }): React.ReactEl
   const [open, setOpen] = useState(false)
   const summary = summarise(block)
   const flagged = block.result?.flagged ?? []
+  const isSubtask = block.name === 'run_subtask'
 
   return (
     <div className="fg-enter my-1.5">
@@ -93,6 +95,12 @@ export function ToolBlockView({ block }: { block: ToolUseBlock }): React.ReactEl
           className={`h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full ${STATUS_DOT[block.status]}`}
           aria-hidden
         />
+        {isSubtask && (
+          <span className="inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+            <EngineerIcon className="h-3 w-3" />
+            <span>Engineer Subtask</span>
+          </span>
+        )}
         <span className="shrink-0 font-mono text-[12.5px] text-muted">{block.name}</span>
         {summary && (
           <span className="truncate font-mono text-[12.5px] text-faint" title={summary}>
@@ -123,6 +131,19 @@ export function ToolBlockView({ block }: { block: ToolUseBlock }): React.ReactEl
 
       {open && (
         <div className="fg-unfold ml-4 border-l border-line pl-3">
+          {isSubtask && (
+            <div className="my-2 flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 p-2 text-[12px] text-muted">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <EngineerIcon className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <span className="font-medium text-ink">Engineer Agent</span>
+                <span className="ml-2 text-faint">
+                  Delegated subtask executed in isolated context
+                </span>
+              </div>
+            </div>
+          )}
           <span className="text-[10.5px] uppercase tracking-wide text-faint">Arguments</span>
           <pre className="mt-1 overflow-x-auto rounded bg-raised p-2 font-mono text-[11.5px] text-muted">
             {JSON.stringify(block.input, null, 2)}

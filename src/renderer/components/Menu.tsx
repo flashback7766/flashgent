@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Popover, PopoverContent, PopoverTrigger } from './Popover.js'
 
 interface MenuProps {
   /** Contents of the trigger button. */
@@ -16,13 +17,10 @@ interface MenuProps {
 }
 
 /**
- * A dropdown that owns its own trigger.
+ * A dropdown that owns its own trigger, powered by Radix UI Popover primitives.
  *
- * Owning the trigger is the point: when the panel handled outside-clicks by
- * itself, a click on the trigger counted as "outside", so the menu closed and
- * the very same click reopened it — it looked like clicking did nothing.
- * Containment is now tested against the wrapper, so the trigger's own click
- * only ever runs the toggle.
+ * Trigger ownership, outside click dismissal, focus trapping, and Escape handling
+ * are managed by Radix UI rather than custom document listeners.
  */
 export function Menu({
   trigger,
@@ -35,66 +33,37 @@ export function Menu({
   onDigit
 }: MenuProps): React.ReactElement {
   const [open, setOpen] = useState(false)
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const panelId = useId()
 
   const close = (): void => setOpen(false)
 
-  useEffect(() => {
-    if (!open) return
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (!onDigit) return
+    const index = Number(event.key) - 1
+    if (Number.isNaN(index) || index < 0) return
+    event.preventDefault()
+    onDigit(index, close)
+  }
 
-    const onPointerDown = (event: MouseEvent): void => {
-      const wrapper = wrapperRef.current
-      if (wrapper && !wrapper.contains(event.target as Node)) setOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        setOpen(false)
-        return
-      }
-      if (!onDigit) return
-      const index = Number(event.key) - 1
-      if (Number.isNaN(index) || index < 0) return
-      event.preventDefault()
-      onDigit(index, close)
-    }
-
-    document.addEventListener('mousedown', onPointerDown, true)
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown, true)
-      document.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [open, onDigit])
+  const radixAlign = align === 'left' ? 'start' : 'end'
 
   return (
-    <div ref={wrapperRef} className="relative">
-      <button
-        type="button"
-        id={triggerId}
-        onClick={() => setOpen((v) => !v)}
-        title={triggerTitle}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        className={triggerClassName}
-      >
-        {trigger}
-      </button>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" id={triggerId} title={triggerTitle} className={triggerClassName}>
+          {trigger}
+        </button>
+      </PopoverTrigger>
 
-      {open && (
-        <div
-          id={panelId}
-          role="dialog"
-          aria-label={label}
-          className={`fg-pop absolute bottom-full z-30 mb-2 rounded-xl border border-line bg-surface p-3 shadow-2xl ${
-            align === 'right' ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'
-          }`}
-        >
-          {children(close)}
-        </div>
-      )}
-    </div>
+      <PopoverContent
+        align={radixAlign}
+        side="top"
+        sideOffset={8}
+        aria-label={label}
+        onKeyDown={handleKeyDown}
+        className={align === 'right' ? 'origin-bottom-right' : 'origin-bottom-left'}
+      >
+        {children(close)}
+      </PopoverContent>
+    </Popover>
   )
 }

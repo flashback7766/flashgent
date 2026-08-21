@@ -1,4 +1,4 @@
-import type { ContentBlock, Message, ThinkingBlock } from '@shared/types'
+import type { AgentRole, ContentBlock, Message, ThinkingBlock } from '@shared/types'
 import { useState } from 'react'
 import { formatRelativeTime, formatTokens } from '../lib/format.js'
 import { prefillProgress } from '../lib/prefill.js'
@@ -6,6 +6,123 @@ import { estimateTurnTokens } from '../lib/tokens.js'
 import { useApp } from '../store/app.js'
 import { Markdown } from './Markdown.js'
 import { ToolBlockView } from './ToolBlock.js'
+
+export interface AgentRoleConfig {
+  role: AgentRole
+  name: string
+  tag: string
+  constraint: string
+  avatarClass: string
+  badgeClass: string
+}
+
+export const AGENT_CONFIGS: Record<AgentRole, AgentRoleConfig> = {
+  architect: {
+    role: 'architect',
+    name: 'Architect',
+    tag: 'Architecture & Planning',
+    constraint: 'Coordinates workflow, designs system structure, and formulates plans',
+    avatarClass:
+      'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-500/30',
+    badgeClass: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25'
+  },
+  engineer: {
+    role: 'engineer',
+    name: 'Engineer',
+    tag: 'Implementation & Execution',
+    constraint: 'Implements code changes, executes tool subtasks, and performs edits',
+    avatarClass:
+      'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-500/30',
+    badgeClass: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25'
+  }
+}
+
+export function resolveAgentRole(agent?: string | null, author?: string | null): AgentRole {
+  const norm = (agent || author || '').toLowerCase().trim()
+  if (norm === 'engineer') return 'engineer'
+  return 'architect'
+}
+
+export function ArchitectIcon({ className }: { className?: string }): React.ReactElement {
+  return (
+    <svg viewBox="0 0 16 16" className={className ?? 'h-3.5 w-3.5'} fill="none" aria-hidden="true">
+      <path
+        d="M8 1.5L2 4.5l6 3 6-3-6-3zM2 8l6 3 6-3M2 11.5l6 3 6-3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function EngineerIcon({ className }: { className?: string }): React.ReactElement {
+  return (
+    <svg viewBox="0 0 16 16" className={className ?? 'h-3.5 w-3.5'} fill="none" aria-hidden="true">
+      <path
+        d="M5 5.5L2.5 8 5 10.5M11 5.5l2.5 2.5-2.5 2.5M9.5 3.5l-3 9"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function AgentHeader({
+  role,
+  model,
+  isStreaming
+}: {
+  role: AgentRole
+  model?: string | null
+  isStreaming?: boolean
+}): React.ReactElement {
+  const config = AGENT_CONFIGS[role]
+
+  return (
+    <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-line/40 pb-2">
+      <div className="flex items-center gap-2">
+        <div
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${config.avatarClass}`}
+          title={`${config.name}: ${config.constraint}`}
+        >
+          {role === 'architect' ? (
+            <ArchitectIcon className="h-3.5 w-3.5" />
+          ) : (
+            <EngineerIcon className="h-3.5 w-3.5" />
+          )}
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[13px] font-semibold text-ink">{config.name}</span>
+          <span
+            className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-medium border ${config.badgeClass}`}
+          >
+            {config.tag}
+          </span>
+          <span className="hidden sm:inline text-[11px] text-faint" title={config.constraint}>
+            {config.constraint}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {model && (
+          <span className="truncate text-[11px] text-faint font-mono max-w-[200px]" title={model}>
+            {model}
+          </span>
+        )}
+        {isStreaming && (
+          <span className="flex items-center gap-1 text-[11px] text-brand">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand fg-pulse" aria-hidden="true" />
+            <span>Active</span>
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function formatTokensPerSecond(tokens: number, durationMs: number | undefined): string | null {
   if (!durationMs || durationMs <= 0 || tokens <= 0) return null
@@ -255,8 +372,16 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
           <div className="rounded-xl border border-brand/40 bg-brand/5 p-4 shadow-sm backdrop-blur-md">
             <div className="flex items-center justify-between border-b border-brand/20 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand/20 text-brand text-xs font-bold">
-                  ⚡
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand/20 text-brand">
+                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+                    <path
+                      d="M9 1.5L3.5 9h4l-1 5.5L13 7H8.5l1-5.5z"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </span>
                 <span className="font-semibold text-ink text-sm">Context Compaction</span>
               </div>
@@ -290,7 +415,7 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
 
           <div className="mt-1 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <Action label="Copy" onClick={() => void copyMessage()}>
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" />
                 <path d="M10.5 3.5h-7a1 1 0 0 0-1 1v7" stroke="currentColor" />
               </svg>
@@ -300,7 +425,7 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
               disabled={streaming}
               onClick={() => void rewindTo(message.id)}
             >
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
                 <path
                   d="M3 8a5 5 0 1 0 1.6-3.7M3 3v3h3"
                   stroke="currentColor"
@@ -314,7 +439,7 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
               disabled={streaming}
               onClick={() => void rollbackTurn(message.id)}
             >
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
                 <path
                   d="M2 8a6 6 0 1 1 1.8 4.2M2 3v5h5"
                   stroke="currentColor"
@@ -330,7 +455,7 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
               disabled={streaming}
               onClick={() => void forkFrom(message.id)}
             >
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
                 <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" />
                 <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" />
                 <circle cx="11.5" cy="3.5" r="1.6" stroke="currentColor" />
@@ -346,9 +471,12 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
     )
   }
 
+  const agentRole = resolveAgentRole(message.agent, message.author)
+
   return (
     <article className="fg-enter group px-6 pb-3">
       <div className="mx-auto fg-column">
+        <AgentHeader role={agentRole} model={message.model} />
         <div className="fg-transcript">
           <BlockList blocks={message.blocks} streaming={false} />
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useApp } from '../store/app.js'
-import { BlockList, MessageView, TurnStatus } from './MessageView.js'
+import { AgentHeader, BlockList, MessageView, TurnStatus } from './MessageView.js'
 import { ContinueCard, PermissionCard } from './PermissionCard.js'
 import { QuestionCard } from './QuestionCard.js'
 
@@ -127,6 +127,7 @@ export function ChatView(): React.ReactElement {
             {streaming && (
               <article className="px-6 pb-3">
                 <div className="mx-auto fg-column">
+                  <AgentHeader role="architect" isStreaming />
                   <div className="fg-transcript">
                     <BlockList blocks={liveBlocks} streaming />
                   </div>

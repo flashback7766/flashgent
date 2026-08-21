@@ -36,12 +36,12 @@ Format: `- [D1] <decision> — <rationale>`
 ## Audit Log
 Append-only, timestamped.
 Format: `- [YYYY-MM-DD] <file:line> — <what's wrong> — <why> — <fix> — status: open/resolved`
-- [2026-08-21] src/renderer/store/app.ts:1107 — Token calculation runs synchronously on main thread — violates [D1] and [D11] which mandate Web Worker for JSON parsing/token calculation — move to dedicated Worker — status: open
-- [2026-08-21] src/main/db/index.ts:133 — Uses raw better-sqlite3 queries instead of Drizzle ORM — violates [D2] — rewrite DB access using Drizzle ORM — status: open
-- [2026-08-21] package.json:35 — Missing Radix UI dependencies — violates [D3] which mandates Radix UI primitives — implement Radix UI primitives — status: open
-- [2026-08-21] src/renderer/components/MessageView.tsx:225 — Missing distinct avatars/tags for agents — violates [D6] which mandates visual agent separation — add visual agent identification — status: open
-- [2026-08-21] src/renderer/store/app.ts:872 — Subtask blocks are silently swallowed instead of streamed — violates [D10] which mandates streaming all chatter — emit subtask blocks to main chat — status: open
-- [2026-08-21] src/renderer/components/Popover.tsx:28 — Bare panel that manually handles outside clicks — violates FLASHGENT.md rule requiring Menu to own its trigger — replace with Menu or wrap trigger — status: open
+- [2026-08-21] src/renderer/store/app.ts:1107 — Token calculation runs synchronously on main thread — violates [D1] and [D11] which mandate Web Worker for JSON parsing/token calculation — move to dedicated Worker — status: resolved
+- [2026-08-21] src/main/db/index.ts:133 — Uses raw better-sqlite3 queries instead of Drizzle ORM — violates [D2] — rewrite DB access using Drizzle ORM — status: resolved
+- [2026-08-21] package.json:35 — Missing Radix UI dependencies — violates [D3] which mandates Radix UI primitives — implement Radix UI primitives — status: resolved
+- [2026-08-21] src/renderer/components/MessageView.tsx:225 — Missing distinct avatars/tags for agents — violates [D6] which mandates visual agent separation — add visual agent identification — status: resolved
+- [2026-08-21] src/renderer/store/app.ts:872 — Subtask blocks are silently swallowed instead of streamed — violates [D10] which mandates streaming all chatter — emit subtask blocks to main chat — status: resolved
+- [2026-08-21] src/renderer/components/Popover.tsx:28 — Bare panel that manually handles outside clicks — violates FLASHGENT.md rule requiring Menu to own its trigger — replace with Menu or wrap trigger — status: resolved
 *Note: The following 5 entries regarding [D9] hardcoding form one atomic refactor (LmStudioClient -> OpenAIApiClient rename + fallback removal). They MUST be built together in a single pass to prevent a broken intermediate state where some call sites use the old class name.*
 - [2026-08-21] src/shared/config.ts:31 — Default endpoint hardcoded to 'LM Studio (local)' and 'http://localhost:1234/v1' — violates updated [D9] (OpenAI-compatible endpoints can be remote) — abstract default config and naming — status: resolved
 - [2026-08-21] src/main/configStore.ts:48 — Fallback base URL hardcoded to 'http://localhost:1234/v1' — violates updated [D9] — remove hardcoded fallback or make it configurable — status: resolved

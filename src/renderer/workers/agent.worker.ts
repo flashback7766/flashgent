@@ -194,7 +194,7 @@ self.onmessage = (e: MessageEvent) => {
     if (used > target && messages.length >= 6) {
       const firstMutable = Math.min(2, messages.length)
       const keepRecent = 6
-      
+
       const compacted = [...messages]
       let currentTokens = used
       let droppedCount = 0
@@ -221,17 +221,34 @@ self.onmessage = (e: MessageEvent) => {
           id: `compact_${Date.now()}_${Math.random()}`,
           sessionId: compacted[0]?.sessionId || '',
           role: 'user',
-          blocks: [{ type: 'text', text: `**Context compressed** — ${droppedCount} earlier messages were pruned.` }],
+          blocks: [
+            {
+              type: 'text',
+              text: `**Context compressed** — ${droppedCount} earlier messages were pruned.`
+            }
+          ],
           model: null,
           createdAt: Date.now()
         }
         compacted.splice(firstMutable, 0, summaryMessage)
-        self.postMessage({ type: 'COMPACT_MESSAGES_RESULT', id: data.id, messages: compacted, compacted: true, droppedCount })
+        self.postMessage({
+          type: 'COMPACT_MESSAGES_RESULT',
+          id: data.id,
+          messages: compacted,
+          compacted: true,
+          droppedCount
+        })
         return
       }
     }
-    
-    self.postMessage({ type: 'COMPACT_MESSAGES_RESULT', id: data.id, messages, compacted: false, droppedCount: 0 })
+
+    self.postMessage({
+      type: 'COMPACT_MESSAGES_RESULT',
+      id: data.id,
+      messages,
+      compacted: false,
+      droppedCount: 0
+    })
     return
   }
 

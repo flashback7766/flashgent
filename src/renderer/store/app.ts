@@ -593,7 +593,11 @@ export const useApp = create<AppState>((set, get) => ({
       const threshold = 0.8 // target usage
 
       const worker = getAgentWorker()
-      const result = await new Promise<{ messages: Message[]; compacted: boolean; droppedCount: number }>((resolve) => {
+      const result = await new Promise<{
+        messages: Message[]
+        compacted: boolean
+        droppedCount: number
+      }>((resolve) => {
         const id = Math.random().toString()
         const handler = (e: MessageEvent) => {
           if (e.data.id === id && e.data.type === 'COMPACT_MESSAGES_RESULT') {
@@ -604,7 +608,14 @@ export const useApp = create<AppState>((set, get) => ({
           return
         }
         worker.addEventListener('message', handler)
-        worker.postMessage({ type: 'COMPACT_MESSAGES', id, messages, limit, threshold, usage: get().usage?.prompt })
+        worker.postMessage({
+          type: 'COMPACT_MESSAGES',
+          id,
+          messages,
+          limit,
+          threshold,
+          usage: get().usage?.prompt
+        })
       })
 
       if (!result.compacted) {
@@ -613,8 +624,10 @@ export const useApp = create<AppState>((set, get) => ({
       }
 
       const updatedMessages = result.messages
-      const summaryMessage = updatedMessages.find(m => m.blocks.some(b => b.type === 'text' && b.text.includes('Context compressed')))
-      
+      const summaryMessage = updatedMessages.find((m) =>
+        m.blocks.some((b) => b.type === 'text' && b.text.includes('Context compressed'))
+      )
+
       if (summaryMessage) {
         must(await api().db.appendMessage(summaryMessage))
       }
@@ -821,62 +834,89 @@ async function streamAssistantTurn(
   const baseTools = buildRegistry(get().mcpTools)
   const workflows = hasWorkflows(session.effort)
 
-  const runSubtask: SubtaskRunner = async (description, ctx, subSignal) => {
-    const nested = await runAgent({
-      client: clientFor(config),
-      model,
-      preset: presetFor(config, session.presetId),
-      config: { ...config.agent, maxIterations: 20 },
-      permissions: config.permissions,
-      mode: session.permissionMode,
-      effort: 'xhigh',
-      registry: baseTools,
-      history: [
-        {
-          id: uid(),
-          sessionId,
-          role: 'user',
-          blocks: [{ type: 'text', text: description }],
-          model: null,
-          createdAt: Date.now()
-        }
-      ],
-      cwd: ctx.cwd,
-      platform: get().info?.platform ?? 'win32',
-      projectInstructions,
-      contextTokens: get().contextTokens,
-      forceReact: reactModels.has(model),
-      subtaskDepth: ctx.subtaskDepth,
-      signal: subSignal,
-      events: {
-        onBlocks: () => undefined,
-        onUsage: (usage) => set({ usage }),
-        // A subtask has no user to ask, so it declines rather than hanging.
-        onPermission: async () => 'deny',
-        onIterationLimit: async () => false
-      }
+  let parentBlocks: ContentBlock[] = []
+  const activeSubtasks = new Map<string, ContentBlock[]>()
+
+  const emitLive = (sourceBlocks?: ContentBlock[]): void => {
+    const subtaskBlocks = Array.from(activeSubtasks.values()).flat()
+    const allBlocks = [...parentBlocks, ...subtaskBlocks]
+    set({
+      liveBlocks: allBlocks,
+      currentAction: describeAction(
+        sourceBlocks ?? (subtaskBlocks.length > 0 ? subtaskBlocks : parentBlocks)
+      )
     })
+    if (Date.now() - lastPersist > 1500) {
+      lastPersist = Date.now()
+      void persist(parentBlocks).catch(() => undefined)
+    }
+  }
 
-    const prose = nested.blocks
-      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-      .trim()
+  const runSubtask: SubtaskRunner = async (description, ctx, subSignal) => {
+    const subtaskId = uid()
+    try {
+      const nested = await runAgent({
+        client: clientFor(config),
+        model,
+        preset: presetFor(config, session.presetId),
+        config: { ...config.agent, maxIterations: 20 },
+        permissions: config.permissions,
+        mode: session.permissionMode,
+        effort: 'xhigh',
+        registry: baseTools,
+        history: [
+          {
+            id: uid(),
+            sessionId,
+            role: 'user',
+            blocks: [{ type: 'text', text: description }],
+            model: null,
+            createdAt: Date.now()
+          }
+        ],
+        cwd: ctx.cwd,
+        platform: get().info?.platform ?? 'win32',
+        projectInstructions,
+        contextTokens: get().contextTokens,
+        forceReact: reactModels.has(model),
+        subtaskDepth: ctx.subtaskDepth,
+        signal: subSignal,
+        events: {
+          onBlocks: (subBlocks) => {
+            activeSubtasks.set(subtaskId, subBlocks)
+            emitLive(subBlocks)
+          },
+          onUsage: (usage) => set({ usage }),
+          // A subtask has no user to ask, so it declines rather than hanging.
+          onPermission: async () => 'deny',
+          onIterationLimit: async () => false
+        }
+      })
 
-    // A subtask that gathered findings but never wrote them up would otherwise
-    // report nothing at all. Hand back what it actually saw instead.
-    const text =
-      prose ||
-      nested.blocks
-        .filter((b) => b.type === 'tool_use' && b.result?.ok)
-        .map((b) => {
-          const tool = b as Extract<ContentBlock, { type: 'tool_use' }>
-          return `${tool.name}: ${tool.result?.content ?? ''}`.trim()
-        })
-        .join('\n\n')
+      const prose = nested.blocks
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
         .trim()
 
-    return { text, ok: nested.stopReason === 'done' }
+      // A subtask that gathered findings but never wrote them up would otherwise
+      // report nothing at all. Hand back what it actually saw instead.
+      const text =
+        prose ||
+        nested.blocks
+          .filter((b) => b.type === 'tool_use' && b.result?.ok)
+          .map((b) => {
+            const tool = b as Extract<ContentBlock, { type: 'tool_use' }>
+            return `${tool.name}: ${tool.result?.content ?? ''}`.trim()
+          })
+          .join('\n\n')
+          .trim()
+
+      return { text, ok: nested.stopReason === 'done' }
+    } finally {
+      activeSubtasks.delete(subtaskId)
+      emitLive()
+    }
   }
 
   // Asking the user is always available in the main conversation; a subtask
@@ -924,6 +964,7 @@ async function streamAssistantTurn(
         id: assistantId,
         sessionId,
         role: 'assistant',
+        agent: 'architect',
         blocks,
         model,
         createdAt: Date.now(),
@@ -975,11 +1016,8 @@ async function streamAssistantTurn(
       signal: controller.signal,
       events: {
         onBlocks: (blocks) => {
-          set({ liveBlocks: blocks, currentAction: describeAction(blocks) })
-          if (Date.now() - lastPersist > 1500) {
-            lastPersist = Date.now()
-            void persist(blocks).catch(() => undefined)
-          }
+          parentBlocks = blocks
+          emitLive(blocks)
         },
         onUsage: (usage) => set({ usage }),
         onReactFallback: () => {
@@ -1157,8 +1195,6 @@ function sortSessions(a: Session, b: Session): number {
   if (a.starred !== b.starred) return a.starred ? -1 : 1
   return b.updatedAt - a.updatedAt
 }
-
-
 
 /** One-line status for the activity indicator. */
 function describeAction(blocks: ContentBlock[]): string {
