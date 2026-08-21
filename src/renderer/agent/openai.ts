@@ -11,7 +11,7 @@ import type { ModelPreset, ToolDefinition } from '@shared/types'
  * preflight. Only the transport moved; the protocol lives here.
  */
 
-/** OpenAI-shaped message, which is what LM Studio's server speaks. */
+/** OpenAI-shaped message, which is what the server speaks. */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null
@@ -60,14 +60,14 @@ export interface StreamOutcome {
   usage?: { prompt: number; completion: number; total: number }
 }
 
-export class LmStudioError extends Error {
+export class OpenAiError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'LmStudioError'
+    this.name = 'OpenAiError'
   }
 }
 
-export class LmStudioClient {
+export class OpenAIApiClient {
   /** Cleared the first time a server rejects the parameter. */
   private reasoningEffortSupported = true
   /** What each model advertises, learned from the last `listModels`. */
@@ -81,10 +81,10 @@ export class LmStudioClient {
   /** List available models. Doubles as the connection test in Settings. */
   async listModels(): Promise<ModelInfo[]> {
     const result = await window.flashgent.llm.models(this.baseUrl, this.apiKey)
-    if (!result.ok) throw new LmStudioError(result.error)
+    if (!result.ok) throw new OpenAiError(result.error)
 
     for (const model of result.value) {
-      if (model.capabilities.length) this.modelCapabilities.set(model.id, model.capabilities)
+      if (model.capabilities?.length) this.modelCapabilities.set(model.id, model.capabilities)
     }
     return result.value
   }
@@ -92,7 +92,7 @@ export class LmStudioClient {
   /**
    * Pick the dialect the server will accept without complaining.
    *
-   * LM Studio reports each model's capabilities. A model with no reasoning
+   * Servers may report each model's capabilities. A model with no reasoning
    * capability only understands `on`/`off`, and sending `medium` makes it log
    * a warning and silently fall back — so send what it actually understands.
    */
@@ -157,19 +157,15 @@ export class LmStudioClient {
     const outcome = await this.run(body, signal, onDelta)
 
     // Some servers reject `reasoning_effort` outright rather than warning.
-    if (
-      outcome.error &&
-      body.reasoning_effort &&
-      /reasoning[_ ]?effort/i.test(outcome.error)
-    ) {
+    if (outcome.error && body.reasoning_effort && /reasoning[_ ]?effort/i.test(outcome.error)) {
       this.reasoningEffortSupported = false
       delete body.reasoning_effort
       const retry = await this.run(body, signal, onDelta)
-      if (retry.error) throw new LmStudioError(retry.error)
+      if (retry.error) throw new OpenAiError(retry.error)
       return retry.outcome
     }
 
-    if (outcome.error) throw new LmStudioError(outcome.error)
+    if (outcome.error) throw new OpenAiError(outcome.error)
     return outcome.outcome
   }
 

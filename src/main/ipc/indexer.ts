@@ -9,7 +9,8 @@ import { handleN } from './result.js'
 
 const toPosix = (p: string): string => p.split('\\').join('/')
 
-const EXPORT_REGEX = /export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|enum)\s+([A-Za-z0-9_$]+)/g
+const EXPORT_REGEX =
+  /export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|enum)\s+([A-Za-z0-9_$]+)/g
 
 export function registerIndexerHandlers(): void {
   handleN<ProjectIndexSummary>(CH.indexerScan, async (cwd: string) => {

@@ -31,7 +31,8 @@ const api: FlashgentApi = {
     resolveDropped: (paths, cwd) => call(CH.fsResolveDropped, paths, cwd),
     listSnapshots: (sessionId) => call(CH.fsSnapshotList, sessionId),
     revertSnapshot: (snapshotId, cwd) => call(CH.fsSnapshotRevert, snapshotId, cwd),
-    rollbackTurn: (sessionId, uptoMessageId, cwd) => call(CH.fsRollbackTurn, sessionId, uptoMessageId, cwd)
+    rollbackTurn: (sessionId, uptoMessageId, cwd) =>
+      call(CH.fsRollbackTurn, sessionId, uptoMessageId, cwd)
   },
   browser: {
     browse: (req) => call(CH.browserBrowse, req)
@@ -92,7 +93,10 @@ const api: FlashgentApi = {
     install: () => call(CH.updaterInstall)
   },
   benchmark: {
-    run: (options?: string | { model?: string; tier?: string; scenarioId?: string; concurrency?: number }) => call(CH.benchmarkRun, options),
+    run: (
+      options?:
+        string | { model?: string; tier?: string; scenarioId?: string; concurrency?: number }
+    ) => call(CH.benchmarkRun, options),
     list: () => call(CH.benchmarkList),
     delete: (id: string) => call(CH.benchmarkDelete, id),
     onProgress: (cb) => subscribe(CH.evtBenchmarkProgress, cb as never),

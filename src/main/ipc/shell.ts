@@ -47,7 +47,6 @@ function clip(text: string, limit = MAX_OUTPUT_CHARS): { text: string; truncated
   return { text: `${head}\n\n… [output truncated] …\n\n${tail}`, truncated: true }
 }
 
-
 export function registerShellHandlers(): void {
   handle<ShellRequest, ShellResult>(CH.shellRun, async (req) => {
     assertShellCommandAllowed(req.command)
@@ -109,9 +108,12 @@ export function registerShellHandlers(): void {
       logger.info(`background task ${id} started: ${req.command}`)
       // Clean up finished background tasks after a retention window (5 mins)
       void settled.then(() => {
-        setTimeout(() => {
-          tasks.delete(id)
-        }, 5 * 60 * 1000)
+        setTimeout(
+          () => {
+            tasks.delete(id)
+          },
+          5 * 60 * 1000
+        )
       })
       return {
         stdout: '',

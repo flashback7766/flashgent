@@ -30,7 +30,8 @@ export function registerBenchmarkHandlers(): void {
       const config = readConfig()
       const endpoint =
         config.endpoints.find((e) => e.id === config.activeEndpointId) ?? config.endpoints[0]
-      const baseUrl = endpoint?.baseUrl ?? 'http://localhost:1234/v1'
+      if (!endpoint) throw new Error('No endpoint available')
+      const baseUrl = endpoint.baseUrl
       const targetModel = opts?.model || config.lastModel || 'Local-LLM'
 
       const evaluator = createLlmEvaluator({
@@ -38,13 +39,18 @@ export function registerBenchmarkHandlers(): void {
         modelName: targetModel
       })
 
-      const report = await runBenchmark(targetModel, evaluator, (progress) => {
-        broadcast(CH.evtBenchmarkProgress, progress)
-      }, {
-        tier: opts?.tier,
-        scenarioId: opts?.scenarioId,
-        concurrency: opts?.concurrency
-      })
+      const report = await runBenchmark(
+        targetModel,
+        evaluator,
+        (progress) => {
+          broadcast(CH.evtBenchmarkProgress, progress)
+        },
+        {
+          tier: opts?.tier,
+          scenarioId: opts?.scenarioId,
+          concurrency: opts?.concurrency
+        }
+      )
 
       // Persist run in database for historical leaderboards
       saveBenchmarkRun(report)

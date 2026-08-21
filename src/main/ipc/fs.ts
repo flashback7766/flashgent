@@ -217,31 +217,28 @@ export function registerFsHandlers(): void {
     return result.canceled ? [] : result.filePaths
   })
 
-  handleN<FileReadResult[]>(
-    CH.fsResolveDropped,
-    async (paths: string[], cwd: string) => {
-      const out: FileReadResult[] = []
-      for (const p of paths.slice(0, 20)) {
-        try {
-          const path = resolveSafePath(p, cwd, 'read')
-          const stat = statSync(path)
-          if (stat.isDirectory() || stat.size > MAX_FILE_BYTES) continue
-          const raw = await readFile(path, 'utf8')
-          if (raw.includes('\u0000')) continue
-          const lines = raw.split(/\r?\n/)
-          out.push({
-            path,
-            content: lines.slice(0, DEFAULT_READ_LINES).join('\n'),
-            totalLines: lines.length,
-            truncated: lines.length > DEFAULT_READ_LINES
-          })
-        } catch {
-          // A file we cannot read is simply not attached.
-        }
+  handleN<FileReadResult[]>(CH.fsResolveDropped, async (paths: string[], cwd: string) => {
+    const out: FileReadResult[] = []
+    for (const p of paths.slice(0, 20)) {
+      try {
+        const path = resolveSafePath(p, cwd, 'read')
+        const stat = statSync(path)
+        if (stat.isDirectory() || stat.size > MAX_FILE_BYTES) continue
+        const raw = await readFile(path, 'utf8')
+        if (raw.includes('\u0000')) continue
+        const lines = raw.split(/\r?\n/)
+        out.push({
+          path,
+          content: lines.slice(0, DEFAULT_READ_LINES).join('\n'),
+          totalLines: lines.length,
+          truncated: lines.length > DEFAULT_READ_LINES
+        })
+      } catch {
+        // A file we cannot read is simply not attached.
       }
-      return out
     }
-  )
+    return out
+  })
 
   handleN<FileSnapshot[]>(CH.fsSnapshotList, async (sessionId: string) => {
     return listFileSnapshots(sessionId)

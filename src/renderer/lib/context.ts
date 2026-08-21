@@ -71,7 +71,9 @@ function toolTraffic(blocks: ContentBlock[]): number {
   return total
 }
 
-function schemaTokens(definitions: Array<{ name: string; description: string; parameters?: unknown }>): number {
+function schemaTokens(
+  definitions: Array<{ name: string; description: string; parameters?: unknown }>
+): number {
   return definitions.reduce(
     (sum, d) =>
       sum +
@@ -122,7 +124,14 @@ export function contextBreakdown(input: BreakdownInput): ContextBreakdown {
         { id: 'messages-prose', label: 'Prose & reasoning', tokens: prose, colour: 'bg-brand' },
         { id: 'messages-tools', label: 'Tool calls & results', tokens: tools, colour: 'bg-ok' },
         ...(overhead > 0
-          ? [{ id: 'messages-overhead', label: 'Wire format & model overhead', tokens: overhead, colour: 'bg-brand-soft' }]
+          ? [
+              {
+                id: 'messages-overhead',
+                label: 'Wire format & model overhead',
+                tokens: overhead,
+                colour: 'bg-brand-soft'
+              }
+            ]
           : [])
       ].filter((child) => child.tokens > 0)
     },

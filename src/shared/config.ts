@@ -28,7 +28,7 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
 export function defaultConfig(): AppConfig {
   return {
     version: CONFIG_VERSION,
-    endpoints: [{ id: 'local', name: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1' }],
+    endpoints: [{ id: 'local', name: 'Local Provider', baseUrl: 'http://localhost:1234/v1' }],
     activeEndpointId: 'local',
     lastModel: null,
     presets: DEFAULT_PRESETS,
@@ -101,12 +101,15 @@ export function mergeConfig(partial: unknown): AppConfig {
   const hasMatchingPreset = merged.presets.some((p) => p.id === merged.activePresetId)
   if (!hasMatchingPreset || LEGACY_BUILTIN_IDS.has(merged.activePresetId)) {
     const replacementPreset = LEGACY_BUILTIN_IDS.has(merged.activePresetId)
-      ? null  // was a built-in, discard it
+      ? null // was a built-in, discard it
       : merged.presets.find((p) => p.id === merged.activePresetId)
     if (!replacementPreset) {
       // Ensure the 'default' preset exists
       if (!merged.presets.some((p) => p.id === 'default')) {
-        merged.presets = [...DEFAULT_PRESETS, ...merged.presets.filter((p) => !LEGACY_BUILTIN_IDS.has(p.id))]
+        merged.presets = [
+          ...DEFAULT_PRESETS,
+          ...merged.presets.filter((p) => !LEGACY_BUILTIN_IDS.has(p.id))
+        ]
       }
       merged.activePresetId = 'default'
     }

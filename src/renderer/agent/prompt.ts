@@ -205,7 +205,10 @@ function parseControlTokenCalls(
   let text = raw
 
   for (const match of [...raw.matchAll(CONTROL_TOKEN_CALL)]) {
-    const inner = (match[1] ?? '').trim().replace(/^\[|\]$/g, '').trim()
+    const inner = (match[1] ?? '')
+      .trim()
+      .replace(/^\[|\]$/g, '')
+      .trim()
     const call = PY_CALL.exec(inner)
 
     if (call?.[1] && knownTools.has(call[1])) {

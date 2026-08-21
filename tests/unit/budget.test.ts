@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { planContext, totalTokens } from '../../src/renderer/agent/budget.js'
-import type { ChatMessage } from '../../src/renderer/agent/lmstudio.js'
+import type { ChatMessage } from '../../src/renderer/agent/openai.js'
 
 const OPTIONS = { contextTokens: 8000, utilisation: 0.8, reserve: 1000, keepRecent: 4 }
 /** Budget the planner works to: 8000 * 0.8 - 1000. */

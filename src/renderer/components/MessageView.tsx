@@ -325,7 +325,11 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
                 <circle cx="8" cy="8" r="1.5" fill="currentColor" />
               </svg>
             </Action>
-            <Action label="Fork from here" disabled={streaming} onClick={() => void forkFrom(message.id)}>
+            <Action
+              label="Fork from here"
+              disabled={streaming}
+              onClick={() => void forkFrom(message.id)}
+            >
               <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
                 <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" />
                 <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" />
@@ -368,7 +372,11 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
               </svg>
             </Action>
           )}
-          <Action label="Fork from here" disabled={streaming} onClick={() => void forkFrom(message.id)}>
+          <Action
+            label="Fork from here"
+            disabled={streaming}
+            onClick={() => void forkFrom(message.id)}
+          >
             <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
               <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" />
               <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" />
@@ -380,15 +388,16 @@ export function MessageView({ message, isLast }: MessageViewProps): React.ReactE
           <span className="ml-1 text-[11px] text-faint">
             {formatRelativeTime(message.createdAt)}
           </span>
-          {message.usage && (() => {
-            const tokens = estimateTurnTokens(message.blocks)
-            const speed = formatTokensPerSecond(tokens, message.generationMs)
-            return (
-              <span className="ml-auto text-[11px] tabular-nums text-faint">
-                {formatTokens(tokens)} tokens{speed ? ` · ${speed}` : ''}
-              </span>
-            )
-          })()}
+          {message.usage &&
+            (() => {
+              const tokens = estimateTurnTokens(message.blocks)
+              const speed = formatTokensPerSecond(tokens, message.generationMs)
+              return (
+                <span className="ml-auto text-[11px] tabular-nums text-faint">
+                  {formatTokens(tokens)} tokens{speed ? ` · ${speed}` : ''}
+                </span>
+              )
+            })()}
         </div>
       </div>
     </article>

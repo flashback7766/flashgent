@@ -1,5 +1,10 @@
 import { BrowserWindow } from 'electron'
-import { CH, type LlmModelInfo, type LlmStreamRequest, type LlmStreamResult } from '../../shared/ipc.js'
+import {
+  CH,
+  type LlmModelInfo,
+  type LlmStreamRequest,
+  type LlmStreamResult
+} from '../../shared/ipc.js'
 import { logger } from '../logger.js'
 import { handle, handleN } from './result.js'
 
@@ -40,7 +45,9 @@ async function describe(response: Response, baseUrl: string): Promise<string> {
     const body = await response.text()
     const parsed = JSON.parse(body) as { error?: { message?: string } | string }
     detail =
-      typeof parsed.error === 'string' ? parsed.error : (parsed.error?.message ?? body.slice(0, 300))
+      typeof parsed.error === 'string'
+        ? parsed.error
+        : (parsed.error?.message ?? body.slice(0, 300))
   } catch {
     // Keep the status text.
   }
@@ -113,7 +120,8 @@ export function registerLlmHandlers(): void {
         const caps = extra.capabilities
         return {
           ...model,
-          contextLength: extra.loaded_context_length ?? extra.max_context_length ?? model.contextLength,
+          contextLength:
+            extra.loaded_context_length ?? extra.max_context_length ?? model.contextLength,
           loaded: extra.state === 'loaded',
           capabilities: Array.isArray(caps) ? caps : typeof caps === 'string' ? [caps] : []
         }
@@ -157,7 +165,8 @@ export function registerLlmHandlers(): void {
 
       return { ok: true }
     } catch (err) {
-      if (controller.signal.aborted) return { ok: false, error: 'Request cancelled.', aborted: true }
+      if (controller.signal.aborted)
+        return { ok: false, error: 'Request cancelled.', aborted: true }
       logger.error('llm stream failed', String(err))
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     } finally {

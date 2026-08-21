@@ -16,7 +16,8 @@ const STATUS_DOT: Record<ToolUseBlock['status'], string> = {
 /** A short, human phrase for what the call is doing. */
 function summarise(block: ToolUseBlock): string {
   const input = block.input
-  const str = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
+  const str = (key: string): string =>
+    typeof input[key] === 'string' ? (input[key] as string) : ''
 
   switch (block.name) {
     case 'read_file':
@@ -138,7 +139,9 @@ export function ToolBlockView({ block }: { block: ToolUseBlock }): React.ReactEl
                 onClick={async () => {
                   const path = typeof block.input.path === 'string' ? block.input.path : ''
                   if (!path) return
-                  const session = useApp.getState().sessions.find((s) => s.id === useApp.getState().activeSessionId)
+                  const session = useApp
+                    .getState()
+                    .sessions.find((s) => s.id === useApp.getState().activeSessionId)
                   if (!session) return
                   const snapshots = await window.flashgent.fs.listSnapshots(session.id)
                   if (snapshots.ok && snapshots.value.length > 0) {

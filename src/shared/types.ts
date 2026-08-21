@@ -240,14 +240,7 @@ export interface AppearanceConfig {
  * How hard the agent works on a turn. Local models expose no native effort
  * knob, so this drives several parameters at once — see `effort.ts`.
  */
-export type EffortLevel =
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max'
-  | 'hypercode'
+export type EffortLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'hypercode'
 
 export const EFFORT_ORDER: EffortLevel[] = [
   'minimal',

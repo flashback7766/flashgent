@@ -105,7 +105,10 @@ export function initUpdater(): void {
           logger.info('[updater] auto-starting download')
           await autoUpdater.downloadUpdate()
         } catch (err) {
-          logger.warn('[updater] auto-download failed', err instanceof Error ? err.message : String(err))
+          logger.warn(
+            '[updater] auto-download failed',
+            err instanceof Error ? err.message : String(err)
+          )
         }
       })()
     }
@@ -156,16 +159,25 @@ export function initUpdater(): void {
         logger.info('[updater] performing initial update check')
         await autoUpdater.checkForUpdates()
       } catch (err) {
-        logger.warn('[updater] initial check failed', err instanceof Error ? err.message : String(err))
+        logger.warn(
+          '[updater] initial check failed',
+          err instanceof Error ? err.message : String(err)
+        )
       }
     })()
 
     // Poll every 6 hours for new updates.
-    setInterval(() => {
-      void autoUpdater.checkForUpdates().catch((err) => {
-        logger.warn('[updater] periodic check failed', err instanceof Error ? err.message : String(err))
-      })
-    }, 1000 * 60 * 60 * 6)
+    setInterval(
+      () => {
+        void autoUpdater.checkForUpdates().catch((err) => {
+          logger.warn(
+            '[updater] periodic check failed',
+            err instanceof Error ? err.message : String(err)
+          )
+        })
+      },
+      1000 * 60 * 60 * 6
+    )
   }
 }
 
@@ -189,7 +201,10 @@ export function registerUpdaterHandlers(): void {
           available: isNewer,
           version: result.updateInfo.version,
           releaseDate: result.updateInfo.releaseDate,
-          releaseNotes: typeof result.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined,
+          releaseNotes:
+            typeof result.updateInfo.releaseNotes === 'string'
+              ? result.updateInfo.releaseNotes
+              : undefined,
           downloaded: false
         }
         return latestUpdate
@@ -212,7 +227,9 @@ export function registerUpdaterHandlers(): void {
       await autoUpdater.downloadUpdate()
       return true
     } catch (err) {
-      throw new Error(`Failed to download update: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(
+        `Failed to download update: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
   })
 

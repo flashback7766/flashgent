@@ -311,9 +311,8 @@ function CodePreview({ font }: { font: string }) {
       style={font.trim() ? { fontFamily: `${font}, var(--font-mono)` } : undefined}
     >
       <code className="hljs">
-        <span className="hljs-keyword">function</span>{' '}
-        <span className="hljs-title">greet</span>(<span className="hljs-attr">name</span>:{' '}
-        <span className="hljs-type">string</span>) {'{'}
+        <span className="hljs-keyword">function</span> <span className="hljs-title">greet</span>(
+        <span className="hljs-attr">name</span>: <span className="hljs-type">string</span>) {'{'}
         {'\n  '}
         <span className="hljs-keyword">return</span>{' '}
         <span className="hljs-string">{'`Hello, ${name}!`'}</span>;{'\n'}
@@ -336,7 +335,12 @@ function BenchmarkPanel({
   report: {
     totalScore: number
     maxScore: number
-    scenarios: Array<{ tier: 'easy' | 'medium' | 'hard' | 'hell'; earnedPoints: number; maxPoints: number; passed: boolean }>
+    scenarios: Array<{
+      tier: 'easy' | 'medium' | 'hard' | 'hell'
+      earnedPoints: number
+      maxPoints: number
+      passed: boolean
+    }>
   } | null
   onRun: (model?: string) => void
 }) {
@@ -385,7 +389,9 @@ function BenchmarkPanel({
           <div className="mt-4 rounded-lg border border-line bg-canvas p-3">
             <div className="flex justify-between gap-3 text-[11.5px] text-muted">
               <span className="truncate">{progress.scenario}</span>
-              <span className="shrink-0">{progress.index}/{progress.total}</span>
+              <span className="shrink-0">
+                {progress.index}/{progress.total}
+              </span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
               <div className="h-full bg-brand transition-all" style={{ width: `${percent}%` }} />
@@ -400,7 +406,9 @@ function BenchmarkPanel({
             <div className="text-4xl font-semibold tracking-tight text-ink">
               {report.totalScore}/{report.maxScore}
             </div>
-            <div className="mt-1 text-[11.5px] uppercase tracking-wider text-muted">Benchmark score</div>
+            <div className="mt-1 text-[11.5px] uppercase tracking-wider text-muted">
+              Benchmark score
+            </div>
           </div>
           {modelTokensPerSecond !== null && (
             <div className="mt-4 rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] text-muted">
@@ -408,7 +416,8 @@ function BenchmarkPanel({
               <span className="font-mono text-ink">
                 {modelTokensPerSecond >= 100
                   ? Math.round(modelTokensPerSecond)
-                  : modelTokensPerSecond.toFixed(1)} tok/s
+                  : modelTokensPerSecond.toFixed(1)}{' '}
+                tok/s
               </span>
             </div>
           )}
@@ -431,8 +440,12 @@ function BenchmarkPanel({
                   return (
                     <tr key={tier} className="border-t border-line text-muted">
                       <td className="px-3 py-2.5 font-medium text-ink">{label}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{score}/{max}</td>
-                      <td className="px-3 py-2.5 text-right">{passed}/{items.length}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">
+                        {score}/{max}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {passed}/{items.length}
+                      </td>
                     </tr>
                   )
                 })}
@@ -465,9 +478,9 @@ export function Settings(): React.ReactElement | null {
   const benchmarkReport = useApp((s) => s.benchmarkReport)
   const runBenchmark = useApp((s) => s.runBenchmark)
   const modelTokensPerSecond = useApp((s) => {
-    const latest = [...s.messages].reverse().find(
-      (message) => message.role === 'assistant' && message.usage && message.generationMs
-    )
+    const latest = [...s.messages]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.usage && message.generationMs)
     return latest?.usage && latest.generationMs
       ? latest.usage.completion / (latest.generationMs / 1000)
       : null
@@ -740,7 +753,8 @@ export function Settings(): React.ReactElement | null {
 
                 <Section title="Sampling">
                   <p className="mb-3 text-[11.5px] leading-relaxed text-faint">
-                    These values are the baseline — effort adjusts temperature further for each turn.
+                    These values are the baseline — effort adjusts temperature further for each
+                    turn.
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Temperature">
@@ -791,7 +805,10 @@ export function Settings(): React.ReactElement | null {
                           patch({
                             presets: draft.presets.map((p) =>
                               p.id === activePreset.id
-                                ? { ...p, topP: e.target.value ? Number(e.target.value) : undefined }
+                                ? {
+                                    ...p,
+                                    topP: e.target.value ? Number(e.target.value) : undefined
+                                  }
                                 : p
                             )
                           })
@@ -799,7 +816,10 @@ export function Settings(): React.ReactElement | null {
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Top-K" hint="Limit sampling to the K most likely tokens. 0 = disabled.">
+                    <Field
+                      label="Top-K"
+                      hint="Limit sampling to the K most likely tokens. 0 = disabled."
+                    >
                       <input
                         type="number"
                         step="1"
@@ -809,7 +829,10 @@ export function Settings(): React.ReactElement | null {
                           patch({
                             presets: draft.presets.map((p) =>
                               p.id === activePreset.id
-                                ? { ...p, topK: e.target.value ? Number(e.target.value) : undefined }
+                                ? {
+                                    ...p,
+                                    topK: e.target.value ? Number(e.target.value) : undefined
+                                  }
                                 : p
                             )
                           })
@@ -817,7 +840,10 @@ export function Settings(): React.ReactElement | null {
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Min-P" hint="Minimum probability relative to top token (0–1). 0 = disabled.">
+                    <Field
+                      label="Min-P"
+                      hint="Minimum probability relative to top token (0–1). 0 = disabled."
+                    >
                       <input
                         type="number"
                         step="0.005"
@@ -828,7 +854,10 @@ export function Settings(): React.ReactElement | null {
                           patch({
                             presets: draft.presets.map((p) =>
                               p.id === activePreset.id
-                                ? { ...p, minP: e.target.value ? Number(e.target.value) : undefined }
+                                ? {
+                                    ...p,
+                                    minP: e.target.value ? Number(e.target.value) : undefined
+                                  }
                                 : p
                             )
                           })
@@ -836,7 +865,10 @@ export function Settings(): React.ReactElement | null {
                         className={inputClass}
                       />
                     </Field>
-                    <Field label="Repeat penalty" hint="Penalises repeated tokens (1 = off, >1 = penalise).">
+                    <Field
+                      label="Repeat penalty"
+                      hint="Penalises repeated tokens (1 = off, >1 = penalise)."
+                    >
                       <input
                         type="number"
                         step="0.05"
@@ -847,7 +879,12 @@ export function Settings(): React.ReactElement | null {
                           patch({
                             presets: draft.presets.map((p) =>
                               p.id === activePreset.id
-                                ? { ...p, repeatPenalty: e.target.value ? Number(e.target.value) : undefined }
+                                ? {
+                                    ...p,
+                                    repeatPenalty: e.target.value
+                                      ? Number(e.target.value)
+                                      : undefined
+                                  }
                                 : p
                             )
                           })
@@ -899,8 +936,8 @@ export function Settings(): React.ReactElement | null {
                   />
                   <p className="pt-1 text-[11.5px] leading-relaxed text-faint">
                     A rule is a tool name (<span className="font-mono">write_file</span>) or a shell
-                    prefix (<span className="font-mono">shell:npm test</span>). Deny always wins,
-                    in every mode.
+                    prefix (<span className="font-mono">shell:npm test</span>). Deny always wins, in
+                    every mode.
                   </p>
                 </Section>
 

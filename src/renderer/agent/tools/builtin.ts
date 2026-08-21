@@ -295,7 +295,8 @@ const runShell: BuiltinTool = {
     const parts: string[] = []
     if (result.stdout.trim()) parts.push(result.stdout.trimEnd())
     if (result.stderr.trim()) parts.push(`[stderr]\n${result.stderr.trimEnd()}`)
-    if (result.timedOut) parts.push(`[timed out after ${timeout ?? ctx.timeoutMs} ms and was killed]`)
+    if (result.timedOut)
+      parts.push(`[timed out after ${timeout ?? ctx.timeoutMs} ms and was killed]`)
     if (!parts.length) parts.push('(no output)')
     parts.push(`[exit code ${result.exitCode ?? 'unknown'}]`)
 
@@ -326,7 +327,8 @@ const shellOutput: BuiltinTool = {
   async execute(input) {
     const result = unwrap(await window.flashgent.shell.output(str(input, 'task_id')))
     const status = result.exitCode === null ? 'still running' : `exited with ${result.exitCode}`
-    const body = [result.stdout, result.stderr].filter((s) => s.trim()).join('\n') || '(no output yet)'
+    const body =
+      [result.stdout, result.stderr].filter((s) => s.trim()).join('\n') || '(no output yet)'
     return {
       ok: true,
       content: `[${status}]\n${body}`,
@@ -362,7 +364,8 @@ const webFetch: BuiltinTool = {
 const webSearch: BuiltinTool = {
   definition: {
     name: 'web_search',
-    description: 'Search the web; returns titles, URLs and snippets. Supports optional site filter.',
+    description:
+      'Search the web; returns titles, URLs and snippets. Supports optional site filter.',
     risk: 'read',
     parameters: {
       type: 'object',
@@ -406,7 +409,15 @@ const directoryTree: BuiltinTool = {
     const rootPath = str(input, 'path', '.')
     const maxDepth = num(input, 'max_depth') ?? 3
 
-    const ignoreSet = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache', 'coverage'])
+    const ignoreSet = new Set([
+      '.git',
+      'node_modules',
+      'dist',
+      'build',
+      '.next',
+      '.cache',
+      'coverage'
+    ])
 
     async function buildTree(relPath: string, depth: number, prefix: string): Promise<string[]> {
       if (depth > maxDepth) return []
@@ -550,15 +561,22 @@ const browsePage: BuiltinTool = {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'URL to load (http://, https://, or file://).' },
-        waitForSelector: { type: 'string', description: 'Optional CSS selector to wait for before extracting text.' },
-        captureScreenshot: { type: 'boolean', description: 'Set true to capture visual screenshot.' }
+        waitForSelector: {
+          type: 'string',
+          description: 'Optional CSS selector to wait for before extracting text.'
+        },
+        captureScreenshot: {
+          type: 'boolean',
+          description: 'Set true to capture visual screenshot.'
+        }
       },
       required: ['url']
     }
   },
   async execute(input) {
     const url = str(input, 'url')
-    const waitForSelector = typeof input.waitForSelector === 'string' ? input.waitForSelector : undefined
+    const waitForSelector =
+      typeof input.waitForSelector === 'string' ? input.waitForSelector : undefined
     const captureScreenshot = bool(input, 'captureScreenshot')
 
     const res = unwrap(

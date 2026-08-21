@@ -92,10 +92,7 @@ export function evaluatePermission(
 }
 
 /** The rule strings that would cover this specific invocation. */
-export function ruleKeysFor(
-  definition: ToolDefinition,
-  input: Record<string, unknown>
-): string[] {
+export function ruleKeysFor(definition: ToolDefinition, input: Record<string, unknown>): string[] {
   const keys = [definition.name]
   if (definition.name === 'run_shell' && typeof input.command === 'string') {
     keys.push(`shell:${input.command.trim()}`)

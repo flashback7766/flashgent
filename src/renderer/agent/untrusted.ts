@@ -61,7 +61,8 @@ const INJECTION_PATTERNS: Pattern[] = [
   },
   {
     label: 'refusal-injection',
-    regex: /\b(refuse|decline|do not|don'?t|never)\b[^.\n]{0,30}\b(help|assist|answer|respond|comply|continue|edit|modify)\b/i
+    regex:
+      /\b(refuse|decline|do not|don'?t|never)\b[^.\n]{0,30}\b(help|assist|answer|respond|comply|continue|edit|modify)\b/i
   },
   {
     label: 'exfiltration',
@@ -70,11 +71,18 @@ const INJECTION_PATTERNS: Pattern[] = [
   },
   {
     label: 'secret-harvesting',
-    regex: /\b(reveal|print|show|output|dump|disclose)\b[^.\n]{0,30}\b(system prompt|api[_ ]?key|token|password|credential|\.env)\b/i
+    regex:
+      /\b(reveal|print|show|output|dump|disclose)\b[^.\n]{0,30}\b(system prompt|api[_ ]?key|token|password|credential|\.env)\b/i
   },
-  { label: 'jailbreak-framing', regex: /\b(developer mode|dan mode|jailbreak|no restrictions|unfiltered mode)\b/i },
+  {
+    label: 'jailbreak-framing',
+    regex: /\b(developer mode|dan mode|jailbreak|no restrictions|unfiltered mode)\b/i
+  },
   { label: 'forged-tool-call', regex: /```\s*tool_calls/i },
-  { label: 'control-token', regex: /<\|(im_start|im_end|system|user|assistant|endoftext)\|>|\[\/?INST\]/i }
+  {
+    label: 'control-token',
+    regex: /<\|(im_start|im_end|system|user|assistant|endoftext)\|>|\[\/?INST\]/i
+  }
 ]
 
 /** Control sequences that could terminate the data region in a real template. */
@@ -84,7 +92,10 @@ const CONTROL_TOKENS: Array<[RegExp, string]> = [
   [/<\/?s>/g, '⟦control-token removed⟧'],
   [/<\|(?:begin|end)_of_text\|>/gi, '⟦control-token removed⟧'],
   // Forged role headers at the start of a line.
-  [/(^|\n)\s{0,4}#{1,6}\s*(system|assistant|user|developer)\s*:?\s*(?=\n|$)/gi, '$1⟦role-header removed⟧'],
+  [
+    /(^|\n)\s{0,4}#{1,6}\s*(system|assistant|user|developer)\s*:?\s*(?=\n|$)/gi,
+    '$1⟦role-header removed⟧'
+  ],
   [/(^|\n)\s{0,4}(system|assistant|developer)\s*:\s*(?=\S)/gi, '$1⟦role-header removed⟧ '],
   // A fenced tool_calls block inside data must never be mistaken for a real one.
   [/```\s*tool_calls/gi, '```text']
@@ -147,7 +158,10 @@ export function wrapUntrusted({ nonce, source, content }: WrapOptions): {
 }
 
 function escapeAttribute(value: string): string {
-  return value.replace(/"/g, "'").replace(/[\n\r]/g, ' ').slice(0, 200)
+  return value
+    .replace(/"/g, "'")
+    .replace(/[\n\r]/g, ' ')
+    .slice(0, 200)
 }
 
 /**

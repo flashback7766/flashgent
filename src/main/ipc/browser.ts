@@ -32,7 +32,10 @@ export function registerBrowserHandlers(): void {
       await Promise.race([
         win.loadURL(req.url),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Navigation timed out after ${timeoutMs}ms`)), timeoutMs)
+          setTimeout(
+            () => reject(new Error(`Navigation timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          )
         )
       ])
 

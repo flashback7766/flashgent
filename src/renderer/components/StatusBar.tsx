@@ -3,7 +3,12 @@ import { Fragment, useState } from 'react'
 import { effortProfile } from '../agent/effort.js'
 import { PERMISSION_MODE_INFO } from '../agent/permissions.js'
 import { BUILTIN_TOOLS } from '../agent/tools/builtin.js'
-import { contextBreakdown, sharePercent, type ContextBreakdown, type ContextSlice } from '../lib/context.js'
+import {
+  contextBreakdown,
+  sharePercent,
+  type ContextBreakdown,
+  type ContextSlice
+} from '../lib/context.js'
 import { formatTokens } from '../lib/format.js'
 import { MIN_MESSAGES_TO_COMPACT, useApp } from '../store/app.js'
 import { Menu } from './Menu.js'
@@ -21,7 +26,15 @@ function Ring({ fraction }: { fraction: number }): React.ReactElement {
 
   return (
     <svg viewBox="0 0 18 18" className={`h-4 w-4 -rotate-90 ${colour}`} aria-hidden>
-      <circle cx="9" cy="9" r={radius} fill="none" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
+      <circle
+        cx="9"
+        cy="9"
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        opacity="0.2"
+      />
       <circle
         cx="9"
         cy="9"
@@ -80,9 +93,7 @@ function SliceRow({
       <span className={`min-w-0 flex-1 truncate ${muted ? 'text-faint' : 'text-muted'}`}>
         {label}
       </span>
-      <span
-        className={`shrink-0 tabular-nums ${muted ? 'text-muted' : 'text-ink'}`}
-      >
+      <span className={`shrink-0 tabular-nums ${muted ? 'text-muted' : 'text-ink'}`}>
         {formatTokens(tokens)}
       </span>
       <span className="w-12 shrink-0 text-right tabular-nums text-faint">
@@ -515,7 +526,7 @@ export function ModelPicker(): React.ReactElement {
   const refreshModels = useApp((s) => s.refreshModels)
 
   const current = session?.model ?? ''
-  const shortName = current ? current.split('/').pop() ?? current : 'no model'
+  const shortName = current ? (current.split('/').pop() ?? current) : 'no model'
 
   return (
     <Menu
@@ -573,7 +584,9 @@ export function ModelPicker(): React.ReactElement {
                       {formatTokens(model.contextLength)}
                     </span>
                   )}
-                  {model.id === current && <span className="shrink-0 text-[11px] text-brand">✓</span>}
+                  {model.id === current && (
+                    <span className="shrink-0 text-[11px] text-brand">✓</span>
+                  )}
                 </button>
               </li>
             ))}

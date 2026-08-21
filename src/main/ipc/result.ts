@@ -12,10 +12,7 @@ function toMessage(err: unknown): string {
  * thrown is converted into `{ ok: false, error }` so the renderer never has to
  * deal with a rejected invoke.
  */
-export function handle<Req, Res>(
-  channel: string,
-  fn: (req: Req) => Promise<Res> | Res
-): void {
+export function handle<Req, Res>(channel: string, fn: (req: Req) => Promise<Res> | Res): void {
   ipcMain.handle(channel, async (_event, req: Req): Promise<IpcResult<Res>> => {
     try {
       return { ok: true, value: await fn(req) }
@@ -27,10 +24,7 @@ export function handle<Req, Res>(
 }
 
 /** Same contract, for channels that take more than one positional argument. */
-export function handleN<Res>(
-  channel: string,
-  fn: (...args: never[]) => Promise<Res> | Res
-): void {
+export function handleN<Res>(channel: string, fn: (...args: never[]) => Promise<Res> | Res): void {
   ipcMain.handle(channel, async (_event, ...args: unknown[]): Promise<IpcResult<Res>> => {
     try {
       return { ok: true, value: await (fn as (...a: unknown[]) => Promise<Res> | Res)(...args) }

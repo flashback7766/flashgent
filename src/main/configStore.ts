@@ -45,5 +45,7 @@ export function writeConfig(config: AppConfig): AppConfig {
 /** Endpoint the renderer should currently be talking to. */
 export function activeBaseUrl(): string {
   const cfg = readConfig()
-  return cfg.endpoints.find((e) => e.id === cfg.activeEndpointId)?.baseUrl ?? 'http://localhost:1234/v1'
+  const endpoint = cfg.endpoints.find((e) => e.id === cfg.activeEndpointId)
+  if (!endpoint) throw new Error('No active endpoint configured')
+  return endpoint.baseUrl
 }

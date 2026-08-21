@@ -20,7 +20,7 @@ import {
 import { create } from 'zustand'
 import { hasWorkflows } from '../agent/effort.js'
 import { runAgent, type PermissionRequest } from '../agent/loop.js'
-import { LmStudioClient, supportsNativeTools, type ModelInfo } from '../agent/lmstudio.js'
+import { OpenAIApiClient, supportsNativeTools, type ModelInfo } from '../agent/openai.js'
 import { persistableRule } from '../agent/permissions.js'
 import { createAskTool } from '../agent/tools/ask.js'
 import { buildRegistry } from '../agent/tools/registry.js'
@@ -757,10 +757,16 @@ export const useApp = create<AppState>((set, get) => ({
       if (info.error) {
         get().toast('error', `Update check failed: ${info.error}`)
       } else if (!info.available) {
-        get().toast('info', `You are on the latest version (v${info.version ?? get().info?.version ?? 'unknown'}).`)
+        get().toast(
+          'info',
+          `You are on the latest version (v${info.version ?? get().info?.version ?? 'unknown'}).`
+        )
       }
     } catch (err) {
-      get().toast('error', `Update check failed: ${err instanceof Error ? err.message : String(err)}`)
+      get().toast(
+        'error',
+        `Update check failed: ${err instanceof Error ? err.message : String(err)}`
+      )
     }
   },
 
@@ -924,7 +930,11 @@ async function streamAssistantTurn(
   let writeQueue: Promise<void> = Promise.resolve()
   let firstTokenAt: number | null = null
 
-  const persist = (blocks: ContentBlock[], usage?: TokenUsage, generationMs?: number): Promise<void> => {
+  const persist = (
+    blocks: ContentBlock[],
+    usage?: TokenUsage,
+    generationMs?: number
+  ): Promise<void> => {
     const run = writeQueue.then(async () => {
       if (persisted) {
         must(
@@ -957,10 +967,15 @@ async function streamAssistantTurn(
   }
 
   // Trigger non-blocking background index scan and retrieve cached outline
-  void api().indexer.scan(session.cwd).catch(() => undefined)
+  void api()
+    .indexer.scan(session.cwd)
+    .catch(() => undefined)
   const indexSummary = orElse(await api().indexer.get(session.cwd), null)
   const projectOutline = indexSummary
-    ? `Workspace has ${indexSummary.filesCount} files. Key files: ${indexSummary.keyFiles.join(', ')}.\nKey exports:\n${indexSummary.exports.slice(0, 15).map((e) => `- ${e.file}: ${e.symbols.join(', ')}`).join('\n')}`
+    ? `Workspace has ${indexSummary.filesCount} files. Key files: ${indexSummary.keyFiles.join(', ')}.\nKey exports:\n${indexSummary.exports
+        .slice(0, 15)
+        .map((e) => `- ${e.file}: ${e.symbols.join(', ')}`)
+        .join('\n')}`
     : undefined
 
   let result
@@ -1103,15 +1118,18 @@ async function maybeAutoCompact(get: Getter): Promise<void> {
   // context the model loaded this turn, not an estimate.  Fall back to an
   // estimate that counts text + tool I/O across all messages.
   const estimated = state.messages.reduce((sum, m) => {
-    return sum + m.blocks.reduce((bSum, b) => {
-      if (b.type === 'text') return bSum + estimateTokens(b.text)
-      if (b.type === 'tool_use') {
-        const inp = JSON.stringify(b.input)
-        const res = b.result?.content ?? ''
-        return bSum + estimateTokens(inp) + estimateTokens(res)
-      }
-      return bSum
-    }, 0)
+    return (
+      sum +
+      m.blocks.reduce((bSum, b) => {
+        if (b.type === 'text') return bSum + estimateTokens(b.text)
+        if (b.type === 'tool_use') {
+          const inp = JSON.stringify(b.input)
+          const res = b.result?.content ?? ''
+          return bSum + estimateTokens(inp) + estimateTokens(res)
+        }
+        return bSum
+      }, 0)
+    )
   }, 1000)
 
   // Prefer prompt tokens: they reflect the actual context window usage as
@@ -1139,14 +1157,20 @@ function emptyReplyNotice(stopReason: string): ContentBlock {
   return { type: 'text', text: '*The model returned an empty response.*' }
 }
 
-function clientFor(config: AppConfig): LmStudioClient {
+function clientFor(config: AppConfig): OpenAIApiClient {
   const endpoint =
     config.endpoints.find((e) => e.id === config.activeEndpointId) ?? config.endpoints[0]
-  return new LmStudioClient(endpoint?.baseUrl ?? 'http://localhost:1234/v1')
+  if (!endpoint) throw new Error('No active endpoint configured')
+  return new OpenAIApiClient(endpoint.baseUrl)
 }
 
 function presetFor(config: AppConfig, presetId: string | null): ModelPreset {
-  const fallback: ModelPreset = { id: 'default', name: 'Default', temperature: 0.3, maxTokens: 4096 }
+  const fallback: ModelPreset = {
+    id: 'default',
+    name: 'Default',
+    temperature: 0.3,
+    maxTokens: 4096
+  }
   return (
     config.presets.find((p) => p.id === presetId) ??
     config.presets.find((p) => p.id === config.activePresetId) ??

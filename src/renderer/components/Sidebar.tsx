@@ -142,9 +142,7 @@ export function Sidebar(): React.ReactElement {
 
   const { starred, groups } = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    const visible = query
-      ? sessions.filter((s) => s.title.toLowerCase().includes(query))
-      : sessions
+    const visible = query ? sessions.filter((s) => s.title.toLowerCase().includes(query)) : sessions
 
     const byWorkspace = new Map<string, Group>()
     for (const session of visible) {
@@ -184,7 +182,9 @@ export function Sidebar(): React.ReactElement {
             type="button"
             onClick={() => setActiveView('chat')}
             className={`flex-1 rounded py-1 text-center transition-colors ${
-              activeView === 'chat' ? 'bg-surface font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
+              activeView === 'chat'
+                ? 'bg-surface font-semibold text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
             }`}
           >
             💬 Chat
@@ -193,7 +193,9 @@ export function Sidebar(): React.ReactElement {
             type="button"
             onClick={() => setActiveView('benchmark')}
             className={`flex-1 rounded py-1 text-center transition-colors ${
-              activeView === 'benchmark' ? 'bg-surface font-semibold text-ink shadow-sm' : 'text-muted hover:text-ink'
+              activeView === 'benchmark'
+                ? 'bg-surface font-semibold text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
             }`}
           >
             ⚡ Arena
@@ -289,7 +291,9 @@ export function Sidebar(): React.ReactElement {
             title="Click to restart and install update"
           >
             <span>🔄</span>
-            <span className="truncate">Restart to update ({updateInfo.version ? `v${updateInfo.version}` : 'ready'})</span>
+            <span className="truncate">
+              Restart to update ({updateInfo.version ? `v${updateInfo.version}` : 'ready'})
+            </span>
           </button>
         ) : updateProgress ? (
           <div className="mb-2 rounded-md border border-line bg-canvas p-2 text-[11px]">

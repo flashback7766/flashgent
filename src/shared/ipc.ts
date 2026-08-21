@@ -224,7 +224,11 @@ export interface FlashgentApi {
     resolveDropped(paths: string[], cwd: string): Promise<IpcResult<FileReadResult[]>>
     listSnapshots(sessionId: string): Promise<IpcResult<FileSnapshot[]>>
     revertSnapshot(snapshotId: string, cwd: string): Promise<IpcResult<boolean>>
-    rollbackTurn(sessionId: string, uptoMessageId: string, cwd: string): Promise<IpcResult<{ revertedFiles: string[] }>>
+    rollbackTurn(
+      sessionId: string,
+      uptoMessageId: string,
+      cwd: string
+    ): Promise<IpcResult<{ revertedFiles: string[] }>>
   }
   browser: {
     browse(req: BrowsePageRequest): Promise<IpcResult<BrowsePageResult>>
@@ -293,7 +297,16 @@ export interface FlashgentApi {
     install(): Promise<IpcResult<boolean>>
   }
   benchmark: {
-    run(options?: string | { model?: string; tier?: BenchmarkTier | 'all'; scenarioId?: string; concurrency?: number }): Promise<IpcResult<void>>
+    run(
+      options?:
+        | string
+        | {
+            model?: string
+            tier?: BenchmarkTier | 'all'
+            scenarioId?: string
+            concurrency?: number
+          }
+    ): Promise<IpcResult<void>>
     list(): Promise<IpcResult<BenchmarkRunRecord[]>>
     delete(id: string): Promise<IpcResult<boolean>>
     onProgress(cb: (progress: BenchmarkProgress) => void): () => void

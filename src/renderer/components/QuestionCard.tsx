@@ -13,7 +13,9 @@ const emptyDraft = (): Draft => ({ selected: new Set(), other: '', otherChecked:
 function toAnswer(question: AskQuestion, draft: Draft, skipped: boolean): AskAnswer {
   return {
     question: question.question,
-    selected: [...draft.selected].sort((a, b) => a - b).map((i) => question.options[i]?.label ?? ''),
+    selected: [...draft.selected]
+      .sort((a, b) => a - b)
+      .map((i) => question.options[i]?.label ?? ''),
     other: draft.otherChecked || !question.multiSelect ? draft.other : '',
     skipped
   }
@@ -88,7 +90,11 @@ export function QuestionCard(): React.ReactElement | null {
 
     // Single choice commits straight away: an extra confirm click buys nothing.
     commit(
-      toAnswer(question, { selected: new Set([optionIndex]), other: '', otherChecked: false }, false)
+      toAnswer(
+        question,
+        { selected: new Set([optionIndex]), other: '', otherChecked: false },
+        false
+      )
     )
   }
 
@@ -163,12 +169,16 @@ export function QuestionCard(): React.ReactElement | null {
           </button>
           <button
             type="button"
-            onClick={() => resolve(questions.map((q) => ({
-              question: q.question,
-              selected: [],
-              other: '',
-              skipped: true
-            })))}
+            onClick={() =>
+              resolve(
+                questions.map((q) => ({
+                  question: q.question,
+                  selected: [],
+                  other: '',
+                  skipped: true
+                }))
+              )
+            }
             aria-label="Dismiss and let flashgent decide"
             className="shrink-0 px-1 text-[14px] leading-none text-faint hover:text-ink"
           >

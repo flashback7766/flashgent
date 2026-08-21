@@ -9,24 +9,26 @@ const BROWSER_USER_AGENT =
 
 /** Very small HTML -> text pass. Good enough to feed docs pages to a model. */
 function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<\/(p|div|li|tr|h[1-6]|section|article|pre)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(Number(code)))
-    // Includes the non-breaking space that &nbsp; decodes to.
-    .replace(/[ \t\u00a0]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  return (
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<\/(p|div|li|tr|h[1-6]|section|article|pre)>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(Number(code)))
+      // Includes the non-breaking space that &nbsp; decodes to.
+      .replace(/[ \t\u00a0]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  )
 }
 
 async function fetchText(url: string, maxBytes: number): Promise<FetchResult> {

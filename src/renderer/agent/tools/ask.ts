@@ -143,7 +143,8 @@ export function createAskTool(run: AskRunner): BuiltinTool {
                 },
                 options: {
                   type: 'array',
-                  description: '2-4 choices. Put your recommendation first, marked "(Recommended)".',
+                  description:
+                    '2-4 choices. Put your recommendation first, marked "(Recommended)".',
                   items: {
                     type: 'object',
                     properties: {

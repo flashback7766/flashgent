@@ -1,4 +1,4 @@
-import type { ChatMessage } from './lmstudio.js'
+import type { ChatMessage } from './openai.js'
 
 /**
  * Fitting a conversation into the context window.
@@ -108,10 +108,7 @@ export function planContext(wire: ChatMessage[], options: BudgetOptions): Contex
   // Always measured against the live array: splicing shifts everything down,
   // so a bound captured from the original length would drift.
   const dropped: ChatMessage[] = []
-  while (
-    messages.length - firstMutable > keepRecent &&
-    totalTokens(messages) > target
-  ) {
+  while (messages.length - firstMutable > keepRecent && totalTokens(messages) > target) {
     const removed = messages.splice(firstMutable, 1)[0]
     if (removed) dropped.push(removed)
   }

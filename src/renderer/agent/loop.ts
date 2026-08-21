@@ -15,7 +15,7 @@ import type {
   ToolResult,
   ToolUseBlock
 } from '@shared/types'
-import { LmStudioClient, LmStudioError, type ChatMessage, type ChatToolCall } from './lmstudio.js'
+import { OpenAIApiClient, OpenAiError, type ChatMessage, type ChatToolCall } from './openai.js'
 import { estimateTokens, planContext } from './budget.js'
 import { applyEffort, effortProfile } from './effort.js'
 import { evaluatePermission, persistableRule, toolAllowedInMode } from './permissions.js'
@@ -54,7 +54,7 @@ export interface AgentEvents {
 }
 
 export interface AgentRunOptions {
-  client: LmStudioClient
+  client: OpenAIApiClient
   model: string
   preset: ModelPreset
   config: AgentConfig
@@ -234,7 +234,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
       events.onRequestStart?.(
         wire.reduce(
           (sum, m) =>
-            sum + estimateTokens(m.content ?? '') + estimateTokens(JSON.stringify(m.tool_calls ?? '')),
+            sum +
+            estimateTokens(m.content ?? '') +
+            estimateTokens(JSON.stringify(m.tool_calls ?? '')),
           0
         )
       )
@@ -388,8 +390,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
         // A local model sometimes returns an entirely empty turn — no text, no
         // reasoning, no call. Nudging it once is far better than showing the
         // user a blank answer.
-        const producedNothing =
-          !outcome.text.trim() && !blocks.some((b) => b.type !== 'tool_use')
+        const producedNothing = !outcome.text.trim() && !blocks.some((b) => b.type !== 'tool_use')
 
         if (producedNothing && emptyRetries > 0) {
           emptyRetries--
@@ -467,12 +468,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
           continue
         }
 
-        const verdict = evaluatePermission(
-          tool.definition,
-          block.input,
-          permissions,
-          options.mode
-        )
+        const verdict = evaluatePermission(tool.definition, block.input, permissions, options.mode)
         if (verdict === 'auto-deny') {
           block.status = 'denied'
           block.result = {
@@ -698,9 +694,7 @@ function parseArguments(raw: string): Record<string, unknown> {
     // Small models sometimes emit trailing commas or single quotes. One
     // forgiving retry is worth it before giving up on the call.
     try {
-      const repaired: unknown = JSON.parse(
-        raw.replace(/,\s*([}\]])/g, '$1').replace(/'/g, '"')
-      )
+      const repaired: unknown = JSON.parse(raw.replace(/,\s*([}\]])/g, '$1').replace(/'/g, '"'))
       return repaired && typeof repaired === 'object' ? (repaired as Record<string, unknown>) : {}
     } catch {
       return {}
@@ -742,7 +736,7 @@ function accumulate(current: TokenUsage | undefined, next: TokenUsage): TokenUsa
  * main, so match on both the code and what it is complaining about.
  */
 function isToolUnsupported(err: unknown): boolean {
-  if (!(err instanceof LmStudioError)) return false
+  if (!(err instanceof OpenAiError)) return false
   if (!/\b(400|422|500)\b/.test(err.message)) return false
   return /tool|function[_ ]call/i.test(err.message)
 }
